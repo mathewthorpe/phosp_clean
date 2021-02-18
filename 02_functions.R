@@ -8,6 +8,41 @@
 # 2. Table defaults
 # 3. Prognostic scoring
 
+# ggplot templates -------------------------------------------------------------------------
+# Lisa's lovely Lancet-style ggplot template (Lisa Norman) ---------------------------------------------
+ggplot_lancet <- function(...)
+  ggplot2::ggplot(...) +
+  scale_fill_brewer(palette = "Blues") +
+  scale_colour_brewer(palette = "Blues") +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_classic() +
+  theme(
+    axis.title.x       = element_text(margin = margin(10, 0, 0, 0, "pt")),
+    axis.title.y       = element_text(margin = margin(0, 10, 0, 0, "pt")),
+    axis.text          = element_text(size = 10),
+    axis.ticks.length  = unit(5, "pt"),
+    panel.grid.major   = element_blank(),
+    panel.grid.minor   = element_blank(),
+    strip.background   = element_blank(),
+    strip.placement    = "outside",
+    strip.text.x       = element_text(hjust = 0,
+                                      face  = "bold",
+                                      size  = 10),
+    strip.text.y       = element_text(hjust = 0,
+                                      size  = 10),
+    text = element_text(
+      family = "Merriweather",
+      size = 10,
+      face = "plain"
+    ),
+    legend.position = c(1, 1),
+    legend.justification = c(1, 1),
+    legend.direction = "horizontal",
+    legend.key.size = unit(10, "pt")
+  ) +
+  guides(fill = guide_legend(title.position = "top"))
+
+
 # Table defaults ---------------------------------------------------------------------------
 # This makes table resize or continue over multiple pages in all output types
 # PDF powered by kableExtra, Word by flextable
@@ -33,3 +68,4 @@ mytable = function(x, caption = "", row.names = FALSE, longtable = TRUE,
       flextable::height(i = 1, height = 0.5, part = "header")
   }
 }
+
