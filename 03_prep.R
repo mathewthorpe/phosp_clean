@@ -169,12 +169,21 @@ phosp_hosp = phosp %>%
 
 # 6 week event only ----------------------------------------------------------
 ## This should be one row per patient, check below
-phosp_six = phosp %>% 
+phosp_6w = phosp %>% 
   filter(is.na(redcap_repeat_instance)) %>% 
   filter(redcap_event_name== "6 Weeks")%>% 
   purrr::discard(~all(is.na(.)))
 
+# 3 month event only ----------------------------------------------------------
+## This should be one row per patient, check below
+phosp_3m = phosp %>% 
+  filter(is.na(redcap_repeat_instance)) %>% 
+  filter(redcap_event_name== "3 Months (1st Research Visit)")%>% 
+  purrr::discard(~all(is.na(.)))
+
+
 # Temp out for testing -----------------------------------------------
 # saveRDS(phosp_hosp, "phosp_hosp.rds")
-# saveRDS(phosp_six, "phosp_six.rds")
+# saveRDS(phosp_6w, "phosp_6w.rds")
+# saveRDS(phosp_3m, "phosp_3m.rds")
 
