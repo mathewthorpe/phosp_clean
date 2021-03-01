@@ -59,7 +59,7 @@ data = data_raw %>%
   as_tibble()
 
 # Formating
-source("PHOSPCOVID19FU_R_2021-02-10_1805.r")
+source("/home/eharrison/phosp_clean/PHOSPCOVID19FU_R_2021-02-10_1805.r")
 
 # Out object and clean
 phosp = data
