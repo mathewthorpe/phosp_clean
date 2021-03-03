@@ -37,8 +37,8 @@ phosp = phosp %>%
       crf1b_eth == "(9) Asian/ Asian British -  Indian" |
         crf1b_eth == "(10) Asian/ Asian British - Pakistani" | 
         crf1b_eth == "(11) Asian/ Asian British - Bangladeshi" |
-        crf1b_eth == "(12) Asian/ Asian British - Chinese" |
-        crf1b_eth == "(13) Asian/ Asian British - Any other Asian background" ~ "Asian", 
+        crf1b_eth == "(13) Asian/ Asian British - Any other Asian background" ~ "South Asian", 
+      crf1b_eth == "(12) Asian/ Asian British - Chinese" ~ "East Asian",
       crf1b_eth == "(14) Black/ African/ Caribbean/ Black British - African" |
         crf1b_eth == "(15) Black/ African/ Caribbean/ Black British - Caribbean" |
         crf1b_eth == "(16) Black/ African/ Caribbean/ Black British - Any other Black/ African/ Caribbean background" ~ "Black",
@@ -46,7 +46,8 @@ phosp = phosp %>%
         crf1b_eth == "(18) Other ethnic group - Any other ethnic group" ~ "Other",
       crf1b_eth == "Prefer not to say" ~ NA_character_
     ) %>% 
-      ff_label("Ethinicity"),
+      fct_relevel("White", "South Asian", "East Asian", "Black", "Mixed", "Other") %>% 
+      ff_label("Ethnicity"),
     
     crf1b_eth_pft = case_when(
       crf1b_eth == "(1) White - English / Welsh / Scottish / Northern Irish / British" |
@@ -69,7 +70,7 @@ phosp = phosp %>%
         crf1b_eth == "(18) Other ethnic group - Any other ethnic group" ~ 5,
       crf1b_eth == "Prefer not to say" ~ NA_real_
     ) %>%
-      ff_label("Ethinicity"),
+      ff_label("Ethnicity"),
     
     ## Diabetes yes no
     crf1a_com_mer_diab_yn = if_else(crf1a_com_mer_diab == "Type 1" | crf1a_com_mer_diab == "Type 2", "Yes", "No") %>% 
@@ -80,7 +81,10 @@ phosp = phosp %>%
       ff_label("Malignancy"),
     
     ## Symptoms - change N/K to missing
-    across(crf1a_fever_history:crf1a_bleeding, fct_recode, NULL = "N/K")
+    across(crf1a_fever_history:crf1a_bleeding, fct_recode, NULL = "N/K"),
+    
+    ## Symptom scales - convert to numeric
+    across(starts_with("psq_scale_"), ~ as.character(.) %>% parse_number()),
     
   ) %>% 
   
@@ -152,7 +156,9 @@ phosp = phosp %>%
     crf1a_com_rheu = rowSums(select(., dplyr::starts_with("crf1a_com_rheu"), -contains("other")) %>% 
                                mutate(across(everything(), ~ . == "Yes")),
                              na.rm = TRUE),
-    crf1a_com_mer = rowSums(select(., dplyr::starts_with("crf1a_com_mer"), -contains("other")) %>% 
+    crf1a_com_mer = rowSums(select(., dplyr::starts_with("crf1a_com_mer"), -c(contains("other"),
+                                                                              crf1a_com_mer_diab,
+                                                                              crf1a_com_mer_diab_com)) %>% 
                               mutate(across(everything(), ~ . == "Yes")),
                             na.rm = TRUE),
     crf1a_com_mh = rowSums(select(., dplyr::starts_with("crf1a_com_mh"), -c(contains("other"), 
@@ -163,6 +169,9 @@ phosp = phosp %>%
     crf1a_com_id = rowSums(select(., dplyr::starts_with("crf1a_com_id"), -contains("other")) %>% 
                              mutate(across(everything(), ~ . == "Yes")),
                            na.rm = TRUE),
+    
+    # Special case diabetes separated out - need to compare this with crf1a_com_mer_diab_yn for missingness
+    crf1a_com_diab = ifelse(is.na(crf1a_com_mer_diab), "No", crf1a_com_mer_diab),
     
     across(c(crf1a_com_card, crf1a_com_res,
              crf1a_com_gast, crf1a_com_neupsy,
@@ -196,6 +205,16 @@ phosp = phosp %>%
     eq5d5l_summary_delta = (eq5d5l_summary - eq5d5l_summary_pre) %>% 
       ff_label("How good or bad is your health overall? 3 months vs pre-covid"),
     
+    ## EQ5D sum across domains. as.numeric makes lowest == 1, so subtract 1 for zero as reference
+    eq5d5l_total_pre = rowSums(select(., eq5d5l_q1_pre:eq5d5l_q5_pre) %>% 
+                                 mutate(across(everything(), ~ as.numeric(.) %>% {. - 1})),
+                               na.rm = TRUE) %>% 
+      ff_label("EQ5D sum of domains pre-covid"),
+    
+    eq5d5l_total = rowSums(select(., eq5d5l_q1:eq5d5l_q5) %>% 
+                             mutate(across(everything(), ~ as.numeric(.) %>% {. - 1})),
+                           na.rm = TRUE) %>% 
+      ff_label("EQ5D sum of domains"),
     
     # Outcomes ----
     ## Respiratory support
@@ -322,6 +341,62 @@ phosp = phosp %>%
     pft_mep = select(., pft_mep_reading1, pft_mep_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("MEP"),
   )
 
+# IMD ------------------------------------------------------------------------------------
+post_code_main_lookup = read_csv('http://argonaut.is.ed.ac.uk/public/lookup/NSPL_FEB_2020_UK.csv')
+
+pcode_data = phosp %>% 
+  select(study_id, post_code) %>% 
+  mutate(length_pcode = str_length(post_code),
+         post_code = toupper(post_code),
+         number_digits = str_count(post_code, "[0-9]"),
+         number_alphanum = str_count(post_code, "[A-Z]")) %>% 
+  filter(number_digits >= 1 & number_alphanum >=1) %>% 
+  mutate(post_code = gsub(' O', ' 0', post_code),
+         post_code = gsub('C0', 'CO', post_code),
+         post_code = gsub('S0', 'SO', post_code),
+         post_code = ifelse(number_digits > 4, sub(" .*", "", post_code), post_code),
+         post_code = gsub('ZZ.*', '', post_code),
+         post_code = gsub(' ', '', post_code),
+         half_post_code = gsub('.{3}$', '', post_code))
+
+post_code_main_lookup = post_code_main_lookup %>%
+  mutate(country = ifelse(startsWith(ccg, 'S'), 'Scotland', NA),
+         country = ifelse(startsWith(ccg, 'E'), 'England', country),
+         country = ifelse(startsWith(ccg, 'W'), 'Wales', country) %>% 
+           factor(),
+         pcds = gsub(' ', '', pcds),
+         half_pcds = gsub('.{3}$', '', pcds)) %>% 
+  group_by(country) %>% 
+  mutate(imd_quintile = ntile(imd, 5)) %>% 
+  select(pcds, half_pcds, country, ccg, imd, imd_quintile) %>% 
+  ungroup()
+
+post_code_supp_lookup = post_code_main_lookup %>% 
+  group_by(half_pcds) %>% 
+  mutate(median_imd_quintile = median(imd_quintile) %>% floor()) %>% 
+  ungroup() %>% 
+  distinct(half_pcds, .keep_all = T) %>% 
+  select(-imd_quintile)
+
+pcode_data = pcode_data %>% 
+  left_join(post_code_main_lookup, by = c('post_code' = 'pcds')) %>% 
+  left_join(post_code_supp_lookup, by = c('half_post_code' = 'half_pcds')) %>%
+  mutate(imd = ifelse(is.na(imd.x), imd.y, imd.x)) %>% 
+  mutate(imd_quintile = ifelse(is.na(imd_quintile), median_imd_quintile, imd_quintile)) %>% 
+  select(study_id, imd, imd_quintile)  
+
+phosp = phosp %>% 
+  left_join(pcode_data %>% 
+              select(study_id, imd, imd_quintile), by = 'study_id') %>% 
+  mutate(
+    imd_quintile = factor(imd_quintile,
+                          levels = c("1", "2", "3", "4", "5"),
+                          labels = c("1 - most deprived", "2", "3", "4", "5 - least deprived")
+    ) %>% 
+      ff_label("Index of muliple deprivation")
+  )
+
+rm(pcode_data, post_code_main_lookup, post_code_supp_lookup)
 
 # Hospital discharge event only ----------------------------------------------------------
 ## This should be one row per patient, check below
