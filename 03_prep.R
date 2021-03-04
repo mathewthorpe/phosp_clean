@@ -24,6 +24,20 @@ phosp = phosp %>%
     tier = if_else(study_id %in% tier2_study_id, 2, 1),
     
     # Explanatory variables ----
+    ## Age
+    age_admission_factor = case_when(
+      age_admission < 20 ~ "<20",
+      age_admission < 30 ~ "20-29",
+      age_admission < 40 ~ "30-39",
+      age_admission < 50 ~ "40-49",
+      age_admission < 60 ~ "50-59",
+      age_admission < 70 ~ "60-69",
+      age_admission < 80 ~ "70-79",
+      age_admission < 90 ~ "80-89",
+      is.na(age_admission) ~ NA_character_,
+      TRUE ~ "90+"
+      ),
+    
     ## Ethnicity
     crf1b_eth_5levels = case_when(
       crf1b_eth == "(1) White - English / Welsh / Scottish / Northern Irish / British" |                           
@@ -127,6 +141,15 @@ phosp = phosp %>%
       rowSums(na.rm = TRUE) %>% 
       ff_label("Number of comorbidities"), 
     
+    no_comorbid_3levels = case_when(
+      no_comorbid == 0 ~ "No comorbidity",
+      no_comorbid == 1 ~ "1 comorbidity", 
+      no_comorbid > 1 ~ "2 or more comorbidities+"
+    ) %>% 
+      factor() %>% 
+      fct_relevel("No comorbidity") %>% 
+      ff_label("Number of comorbidities (factor)"), 
+    
     # Dates ----
     ## Symptom duration
     crf1a_symptom_duration = (crf1a_date_adm - crf1a_date_first_symptoms) %>% 
@@ -171,8 +194,8 @@ phosp = phosp %>%
                            na.rm = TRUE),
     
     # Special case diabetes separated out - need to compare this with crf1a_com_mer_diab_yn for missingness
-    crf1a_com_diab = ifelse(is.na(crf1a_com_mer_diab), "No", crf1a_com_mer_diab),
-    
+    crf1a_com_diab = fct_explicit_na(crf1a_com_mer_diab, na_level = "No"),
+
     across(c(crf1a_com_card, crf1a_com_res,
              crf1a_com_gast, crf1a_com_neupsy,
              crf1a_com_rheu, crf1a_com_mer, 
@@ -215,6 +238,75 @@ phosp = phosp %>%
                              mutate(across(everything(), ~ as.numeric(.) %>% {. - 1})),
                            na.rm = TRUE) %>% 
       ff_label("EQ5D sum of domains"),
+    
+    
+    across(starts_with("eq5d5l_q"), ~ as.numeric(.) - 1, .names = "{.col}_numeric"),
+    eq5d5l_q1_delta = eq5d5l_q1_numeric - eq5d5l_q1_pre_numeric,
+    eq5d5l_q2_delta = eq5d5l_q1_numeric - eq5d5l_q2_pre_numeric,
+    eq5d5l_q3_delta = eq5d5l_q1_numeric - eq5d5l_q3_pre_numeric,
+    eq5d5l_q4_delta = eq5d5l_q1_numeric - eq5d5l_q4_pre_numeric,
+    eq5d5l_q5_delta = eq5d5l_q1_numeric - eq5d5l_q5_pre_numeric,
+    
+    across(matches("eq5d5l_q.*_delta"), ~ case_when(
+      . == 0 ~ "No change",
+      . < 0 ~ "Improvement",
+      . > 0 ~ "Worse"
+    )   %>% 
+      factor() %>% 
+      fct_relevel("No change"), .names = "{.col}_change"),
+    
+    across(starts_with("patient_sq_l_"), ~ as.numeric(.) - 1, .names = "{.col}_numeric"),
+    patient_sq_l_t_seeing_delta = patient_sq_l_t_seeing_numeric - patient_sq_l_b_seeing_numeric,
+    patient_sq_l_t_hearing_delta = patient_sq_l_t_hearing_numeric - patient_sq_l_b_hearing_numeric,
+    patient_sq_l_t_walking_delta = patient_sq_l_t_walking_numeric - patient_sq_l_b_walking_numeric,
+    patient_sq_l_t_remembering_delta = patient_sq_l_t_remembering_numeric - patient_sq_l_b_remembering_numeric,
+    patient_sq_l_t_self_care_delta = patient_sq_l_t_self_care_numeric - patient_sq_l_b_self_care_numeric,
+    patient_sq_l_t_communicate_delta = patient_sq_l_t_communicate_numeric - patient_sq_l_b_communicate_numeric,
+    
+    across(matches("patient_sq_l_t_.*_delta"), ~ case_when(
+      . == 0 ~ "No change",
+      . < 0 ~ "Improvement",
+      . > 0 ~ "Worse"
+    )   %>% 
+      factor() %>% 
+      fct_relevel("No change"), .names = "{.col}_change"),
+    
+    # Want if_all and if_any here to keep the regex column names select, but on-going issues
+    # https://github.com/tidyverse/dplyr/issues/5782
+    
+    # % with a disability
+    patient_sq_l_t_disability = case_when(
+      patient_sq_l_t_seeing == "Yes - a lot difficulty" |
+        patient_sq_l_t_hearing == "Yes - a lot difficulty" |
+        patient_sq_l_t_walking == "Yes - a lot difficulty" |
+        patient_sq_l_t_remembering == "Yes - a lot difficulty" |
+        patient_sq_l_t_self_care  == "Yes - a lot difficulty" |
+        patient_sq_l_t_communicate == "Yes - a lot difficulty" ~ "Yes",
+      
+      is.na(patient_sq_l_t_seeing) &
+        is.na(patient_sq_l_t_hearing) &
+        is.na(patient_sq_l_t_walking) &
+        is.na(patient_sq_l_t_remembering) &
+        is.na(patient_sq_l_t_self_care) &
+        is.na(patient_sq_l_t_communicate) ~ NA_character_,
+      TRUE ~ "No") %>% 
+      factor(),
+    
+    psq_scale_blness_delta = psq_scale_blness_24hrs - psq_scale_blness_pre,
+    psq_scale_fatigue_delta = psq_scale_fatigue_24hrs - psq_scale_fatigue_pre,
+    psq_scale_cough_delta = psq_scale_cough_24hrs - psq_scale_cough_pre,
+    psq_scale_pain_delta = psq_scale_pain_24hrs - psq_scale_pain_pre,
+    psq_scale_sleep_delta = psq_scale_sleep_24hrs - psq_scale_sleep_pre,
+    
+    across(matches("psq_scale_.*_delta"), ~ case_when(
+      . == 0 ~ "No change",
+      . < 0 ~ "Improvement",
+      . > 0 ~ "Worse"
+    )   %>% 
+      factor() %>% 
+      fct_relevel("No change"), .names = "{.col}_change"),
+    
+    
     
     # Outcomes ----
     ## Respiratory support
@@ -266,10 +358,12 @@ phosp = phosp %>%
 
 # Within phosp, fill within patients across rows  ---------------------------------------
 ## This can be changed to joins in the future if causes any issues
+## Doesn't work at the moment for comorbidity, as that sums across columns for all rows
+## See joint below. 
 ## Currently this is for PFT calculations
 phosp = phosp %>%  
   group_by(study_id) %>% 
-  fill(age_admission, crf1a_sex,  crf1b_eth_pft, crf3a_rest_height, 
+  fill(age_admission, age_admission_factor, crf1a_sex,  crf1b_eth_pft, crf3a_rest_height,
        .direction = "downup") %>% 
   ungroup() %>% 
   ff_relabel_df(phosp)
@@ -404,6 +498,11 @@ phosp_hosp = phosp %>%
   filter(is.na(redcap_repeat_instance)) %>% 
   filter(redcap_event_name== "Hospital Discharge") %>% 
   purrr::discard(~all(is.na(.)))
+
+# Join back in admission only variables that cannot be filled --------------------------
+phosp = phosp %>% 
+  select(-c(no_comorbid, no_comorbid_3levels)) %>% 
+  left_join(phosp_hosp %>% select(study_id, no_comorbid, no_comorbid_3levels))
 
 # 6 week event only ----------------------------------------------------------
 ## This should be one row per patient, check below
