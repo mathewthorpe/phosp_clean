@@ -36,7 +36,7 @@ phosp = phosp %>%
       age_admission < 90 ~ "80-89",
       is.na(age_admission) ~ NA_character_,
       TRUE ~ "90+"
-      ),
+    ),
     
     ## Ethnicity
     crf1b_eth_5levels = case_when(
@@ -144,7 +144,15 @@ phosp = phosp %>%
     no_comorbid_3levels = case_when(
       no_comorbid == 0 ~ "No comorbidity",
       no_comorbid == 1 ~ "1 comorbidity", 
-      no_comorbid > 1 ~ "2 or more comorbidities+"
+      no_comorbid > 1 ~ "2+ comorbidities"
+    ) %>% 
+      factor() %>% 
+      fct_relevel("No comorbidity") %>% 
+      ff_label("Number of comorbidities (factor)"), 
+    
+    no_comorbid_2levels = case_when(
+      no_comorbid == 0 ~ "No comorbidity",
+      no_comorbid > 1 ~ "1+ comorbidity", 
     ) %>% 
       factor() %>% 
       fct_relevel("No comorbidity") %>% 
@@ -194,8 +202,9 @@ phosp = phosp %>%
                            na.rm = TRUE),
     
     # Special case diabetes separated out - need to compare this with crf1a_com_mer_diab_yn for missingness
-    crf1a_com_diab = fct_explicit_na(crf1a_com_mer_diab, na_level = "No"),
-
+    crf1a_com_diab = fct_explicit_na(crf1a_com_mer_diab, na_level = "No") %>% 
+      fct_relevel("No"),
+    
     across(c(crf1a_com_card, crf1a_com_res,
              crf1a_com_gast, crf1a_com_neupsy,
              crf1a_com_rheu, crf1a_com_mer, 
@@ -222,11 +231,21 @@ phosp = phosp %>%
     crf3a_bmi = (crf3a_rest_weight / (crf3a_rest_height / 100)^2) %>% 
       ff_label("BMI"),
     
-    # PROMs
+    # PROMs ----
+    ## EQ5D
     eq5d5l_summary_pre = parse_number(eq5d5l_summary_pre),
     eq5d5l_summary = parse_number(eq5d5l_summary),
     eq5d5l_summary_delta = (eq5d5l_summary - eq5d5l_summary_pre) %>% 
       ff_label("How good or bad is your health overall? 3 months vs pre-covid"),
+    
+    eq5d5l_summary_delta_change = case_when(
+      eq5d5l_summary_delta == 0 ~ "No change",
+      eq5d5l_summary_delta > 0 ~ "Improvement",
+      eq5d5l_summary_delta < 0 ~ "Worse"
+    )   %>% 
+      factor() %>% 
+      fct_relevel("No change"),
+    
     
     ## EQ5D sum across domains. as.numeric makes lowest == 1, so subtract 1 for zero as reference
     eq5d5l_total_pre = rowSums(select(., eq5d5l_q1_pre:eq5d5l_q5_pre) %>% 
@@ -253,8 +272,62 @@ phosp = phosp %>%
       . > 0 ~ "Worse"
     )   %>% 
       factor() %>% 
-      fct_relevel("No change"), .names = "{.col}_change"),
-    
+      fct_relevel("No change"), .names = "{.col}_change")
+  ) %>% 
+  ff_relabel_df(phosp)
+
+
+####################################################################
+
+# Code authors: Steven Kerr
+
+## Description: 
+### Calculate EQ5DL index for phosp data   ####
+
+####################################################################
+
+crosswalk_lookup <- readxl::read_excel('crosswalk_lookup.xls',sheet = "EQ-5D-5L Value Sets")
+
+##################################################################
+
+
+concat_answers <- function(ans1,ans2,ans3,ans4,ans5){
+  answers <- bind_cols(ans1, ans2 , ans3, ans4, ans5)
+  answerString <- ifelse(complete.cases(answers), paste(ans1, ans2, ans3, ans4, ans5, sep = ''), NA)
+}
+
+
+concat_answers2 <- function(answers){
+  answers <- mutate_all(answers, as.numeric)
+  answerString <- ifelse(complete.cases(answers), paste(answers[,1], answers[,2], answers[,3], answers[,4], answers[,5], sep = ''), NA)
+}
+
+
+phosp <- mutate(phosp, answers = 
+                  concat_answers(as.numeric(eq5d5l_q1_pre), as.numeric(eq5d5l_q2_pre), 
+                                 as.numeric(eq5d5l_q3_pre), as.numeric(eq5d5l_q4_pre), 
+                                 as.numeric(eq5d5l_q5_pre) )) %>%
+  left_join( crosswalk_lookup[c('...1', 'UK')] ,    by = c("answers" = "...1")) %>%
+  dplyr::select(-c(answers)) %>% 
+  dplyr::rename(eq5d5l_utility_index_pre = UK) %>% 
+  mutate(eq5d5l_utility_index_pre = as.numeric(eq5d5l_utility_index_pre))
+
+phosp <- mutate(phosp, answers = 
+                  concat_answers(as.numeric(eq5d5l_q1), as.numeric(eq5d5l_q2), 
+                                 as.numeric(eq5d5l_q3), as.numeric(eq5d5l_q4), 
+                                 as.numeric(eq5d5l_q5) )) %>%
+  left_join( crosswalk_lookup[c('...1', 'UK')] , by = c("answers" = "...1")) %>%
+  dplyr::select(-c(answers)) %>% 
+  dplyr::rename(eq5d5l_utility_index = UK) %>% 
+  mutate(eq5d5l_utility_index = as.numeric(eq5d5l_utility_index),
+         eq5d5l_utility_index_delta = (eq5d5l_utility_index - eq5d5l_utility_index_pre) %>% 
+           ff_label("EQ5D utility index (difference)")
+  )
+
+
+
+phosp = phosp %>% 
+  mutate(
     across(starts_with("patient_sq_l_"), ~ as.numeric(.) - 1, .names = "{.col}_numeric"),
     patient_sq_l_t_seeing_delta = patient_sq_l_t_seeing_numeric - patient_sq_l_b_seeing_numeric,
     patient_sq_l_t_hearing_delta = patient_sq_l_t_hearing_numeric - patient_sq_l_b_hearing_numeric,
@@ -290,8 +363,37 @@ phosp = phosp %>%
         is.na(patient_sq_l_t_self_care) &
         is.na(patient_sq_l_t_communicate) ~ NA_character_,
       TRUE ~ "No") %>% 
-      factor(),
+      factor() %>% 
+      ff_label("WG-SS: any 'Yes - lot of difficulty'"),
     
+    # New disability, 0-2, 0-3, 1-2, 1-3
+    ## All these are > 1 except, 1 to 2 which is coded specifically
+    patient_sq_l_t__new_disability = case_when(
+      patient_sq_l_t_seeing_delta > 1 ~ "Yes",
+      patient_sq_l_t_hearing_delta > 1 ~ "Yes",          
+      patient_sq_l_t_walking_delta > 1 ~ "Yes",            
+      patient_sq_l_t_remembering_delta > 1 ~ "Yes",       
+      patient_sq_l_t_self_care_delta > 1 ~ "Yes",     
+      patient_sq_l_t_communicate_delta > 1 ~ "Yes",
+      
+      patient_sq_l_t_seeing_numeric == 2 & patient_sq_l_b_seeing_numeric == 1 ~ "Yes",
+      patient_sq_l_t_hearing_numeric == 2 & patient_sq_l_b_hearing_numeric == 1 ~ "Yes",
+      patient_sq_l_t_walking_numeric == 2 & patient_sq_l_b_walking_numeric == 1 ~ "Yes",
+      patient_sq_l_t_remembering_numeric == 2 & patient_sq_l_b_remembering_numeric == 1 ~ "Yes",
+      patient_sq_l_t_self_care_numeric == 2 & patient_sq_l_b_self_care_numeric == 1 ~ "Yes",
+      patient_sq_l_t_communicate_numeric == 2 & patient_sq_l_b_communicate_numeric == 1 ~ "Yes",
+      
+      is.na( patient_sq_l_t_seeing_delta) &
+        is.na( patient_sq_l_t_hearing_delta) &
+        is.na( patient_sq_l_t_walking_delta) &
+        is.na( patient_sq_l_t_remembering_delta) &
+        is.na( patient_sq_l_t_self_care_delta) &
+        is.na( patient_sq_l_t_communicate_delta) ~ NA_character_,
+      TRUE ~ "No"
+    ) %>% 
+      ff_label("WG-SS: new disability"),
+    
+    ## PSQ
     psq_scale_blness_delta = psq_scale_blness_24hrs - psq_scale_blness_pre,
     psq_scale_fatigue_delta = psq_scale_fatigue_24hrs - psq_scale_fatigue_pre,
     psq_scale_cough_delta = psq_scale_cough_24hrs - psq_scale_cough_pre,
@@ -306,6 +408,87 @@ phosp = phosp %>%
       factor() %>% 
       fct_relevel("No change"), .names = "{.col}_change"),
     
+    
+    
+    ## GAD7
+    gad7_summary_2levels = case_when(
+      gad7_summary <= 8 ~ "No",
+      gad7_summary > 8 ~ "Yes",
+    ) %>%
+      factor() %>% 
+      ff_label("Anxiety (GAD7 >8)"),
+    
+    
+    ## PHQ9
+    phq9_summary_2levels = case_when(
+      phq9_summary < 10 ~ "No",
+      phq9_summary >=10 ~ "Yes",
+    ) %>%
+      factor() %>% 
+      ff_label("Depression (PHQ-9 >= 10)"),
+    
+    ## PCL-5
+    pcl5_summary_2levels = case_when(
+      pcl5_summary < 38 ~ "No",
+      pcl5_summary >=38 ~ "Yes",
+    ) %>%
+      factor() %>% 
+      ff_label("PTSD (PCL-5 >= 38)"),
+    
+    ## Dyspoea-12
+    dyspnoea12_summary = rowSums(select(., matches("^dysp")) %>% 
+                                   mutate(across(everything(), ~ as.numeric(.) %>% {. - 1})),
+                                 na.rm = FALSE) %>% 
+      ff_label("Dyspnoea-12 score"),
+    
+    ## BPI
+    
+    bpi_severity_summary = rowSums(select(., bpi_worst:bpi_rightnow) %>% 
+                                     mutate(across(everything(), ~ as.numeric(.) %>% {. - 1})),
+                                   na.rm = FALSE) %>% 
+      ff_label("BPI severity"),
+    
+    bpi_interference_summary = rowSums(select(., bpi_past24_general:bpi_past24_enjoyment) %>% 
+                                         mutate(across(everything(), ~ as.numeric(.) %>% {. - 1})),
+                                       na.rm = FALSE) %>% 
+      ff_label("BPI interference"),
+    
+    
+    ## SPBB
+    sppb_score_summary = case_when(
+      sppb_score <= 10 ~ "Yes",
+      sppb_score > 10 ~ "No",
+    ) %>% 
+      ff_label("SPPB (mobility disability"), 
+    
+    
+    ## Rockwood clinical frailty score (RCF)
+    rcf_score_numeric = rcf_score %>% as.numeric(),
+    rcf_score_summary = case_when(
+      rcf_score_numeric >= 5 ~ "Yes",
+      rcf_score_numeric < 5 ~ "No",
+    ) %>% 
+      ff_label("Rockwood clinical frailty score >=5"), 
+    
+    
+    ## MOCA
+    mocal_total_summary = case_when(
+      mocal_total == 0 ~ NA_character_,
+      mocal_total < 23 ~ "Yes",
+      mocal_total >= 23 ~ "No",
+    ) %>% 
+      ff_label("MOCA <23"), 
+    
+    
+    
+    
+    
+    
+    # Treatment -----
+    across(c("crf1a_treat_ss", "crf1a_treat_at", "crf1a_treat_tdac"), ~ fct_recode(., 
+                                                                                   NULL = "N/K") %>% 
+             fct_relevel("No")
+    ),
     
     
     # Outcomes ----
@@ -382,9 +565,130 @@ phosp = phosp %>%
       crf3a_rest_height < 100 ~ NA_real_,
       crf3a_rest_height > 250 ~ NA_real_,
       TRUE ~ crf3a_rest_height
+    ),
+    
+    crf3a_rest_weight = case_when(
+      crf3a_rest_weight < 40 ~ NA_real_,
+      crf3a_rest_weight > 300 ~ NA_real_,
+      TRUE ~ crf3a_rest_weight
+    ),
+    
+    crf3a_bmi = case_when(
+      crf3a_bmi  < 15 ~ NA_real_,
+      crf3a_bmi  > 80 ~ NA_real_,
+      TRUE ~ crf3a_bmi 
     )
+    
   ) %>% 
   ff_relabel_df(phosp)
+
+# Blood results -------------------------------------------------------------------------------
+phosp = phosp %>% 
+  mutate(
+    # BNP
+    bnp_summary = case_when(
+      pnbnp_result >= 400 ~ "Yes",
+      bnp_result >= 100 ~ "Yes",
+      pnbnp_less_greater == "> (Greater than)" ~ "Yes",
+      bnp_less_greater == "> (Greater than)" ~ "Yes",
+      is.na(pnbnp_result) & is.na(bnp_result) &
+        is.na(pnbnp_less_greater) & is.na(bnp_less_greater) ~ NA_character_,
+      TRUE ~ "No"
+    ) %>% 
+      factor() %>% 
+      ff_label("BNP/NT-Pro-BNP above threshold"),
+    
+    hba1c_result = case_when(
+      hba1c_result > 20 ~ (0.09148 * hba1c_result) + 2.152,
+      TRUE ~ hba1c_result
+    ),
+    
+    hba1c_summary = case_when(
+      hba1c_result >= 6.5 ~ "Yes",
+      # hba1c_less_greater == "> (Greater than)" ~ "Yes", ## Nothing in this variable?
+      hba1c_result < 6.5 ~ "No"
+    ) %>% 
+      factor() %>% 
+      ff_label("HbA1C above threshold"),
+    
+    egfr_summary = case_when(
+      egfr_result < 60 ~ "Yes",
+      egfr_result >= 60 ~ "No"
+    ) %>% 
+      factor() %>% 
+      ff_label("eGFR < 60 ml/min/1.73 m2"),
+    
+    ddi_result = as.numeric(ddi_result),
+    ddi_result = if_else(ddi_result < 10, ddi_result * 500, ddi_result),
+    
+    ddi_summary = case_when(
+      ddi_result < 500 ~ "No",
+      ddi_result >= 500 ~ "Yes"
+    ) %>% 
+      ff_label("D-dimer (>= 500 ng/ml"),
+    
+    crp_summary = case_when(
+      crp_result > 10 ~ "No",
+      crp_result <= 10 ~ "Yes"
+    ) %>% 
+      ff_label("CRP (>10 mg/L)")
+    
+    # Still to do
+    # D-Dimers by value: (ddi_result)
+    # Any value < 10 will be in mcg/mL FEU whereas any value over 10 will be ng/mL DDU.
+    # 1 mcg/mL FEU = 500 ng/mL DDU
+    
+  )%>% 
+  ff_relabel_df(phosp)
+
+
+# Occupation ----------------------------------------------------------------------------------
+phosp = phosp %>% 
+  mutate(
+    social_status_before = ff_label(social_status_before, "Occupation/working status before COVID-19"),
+    
+    social_status_after = case_when(
+      patient_sq_q == "Same as before" ~ social_status_before,
+      patient_sq_q == "Different from before" & 
+        social_status_before != patient_sq_q_today ~ patient_sq_q_today
+    ) %>% 
+      ff_label("Occupation/working status since COVID-19"),
+    
+    
+    
+    # working_status change
+    working_status_change = case_when( 
+      social_status_before != patient_sq_q_today | as.numeric(patient_sq_q) == 2  ~ "Yes",
+      as.numeric(patient_sq_q) == 1 ~ "No"),
+    
+    # working_less
+    working_less = case_when( 
+      working_status_change == "Yes" & as.numeric(social_status_before) == 1 & 
+        as.numeric(patient_sq_q_today) == 2  ~ "Yes",
+      working_status_change == "No" ~ "No"),
+    
+    # no_longer_working
+    no_longer_working = case_when( 
+      working_status_change == "Yes" & !is.na(social_status_before) & !as.numeric(patient_sq_q_today) %in% c(1,2)  ~ "Yes",
+      working_status_change == "No" ~ "No"),
+    
+    # health_reasonsphosp
+    health_reasons = case_when( 
+      as.numeric(patient_sq_q_change) %in% c(1, 5) ~ "Yes",
+      working_status_change == "No" ~ "No"),
+    
+    # employer_reasons
+    employer_reasons = case_when( 
+      as.numeric(patient_sq_q_change) %in% c(3, 4) ~ "Yes",
+      working_status_change == "No" ~ "No"),
+    
+    # other reasons
+    other_reasons = case_when( 
+      as.numeric(patient_sq_q_change) == 2 %in% c(2, 6, 7)  ~ "Yes",
+      working_status_change == "No" ~ "No")
+  ) %>% 
+  ff_relabel_df(phosp)
+
 
 
 # PFTs ----------------------------------------------------------------------------------------
@@ -415,25 +719,58 @@ phosp = phosp %>%
     pft_fvc_pred = pred_GLI(age_admission, crf3a_rest_height / 100, crf1a_sex, crf1b_eth_pft, param = c("FVC")),
     
     pft_fev1_perc_pred = (100 * pft_fev1 / pft_fev1_pred) %>% ff_label("FEV1 % predicted"), 
-    pft_fvc_perc_pred = (100 * pft_fvc / pft_fvc_pred) %>% ff_label("FVC % predicted")
-  ) %>% 
-  
-  mutate(
+    pft_fvc_perc_pred = (100 * pft_fvc / pft_fvc_pred) %>% ff_label("FVC % predicted"),
     
-    ### FEV1:FVC ratio reported as percentage normal by some, recalculate from raw values
-    pft_fev1_fvc_r1 = pft_fev1_r1a / pft_fvc_r1a,
-    pft_fev1_fvc_r2 = pft_fev1_r2a / pft_fvc_r2a,
-    pft_fev1_fvc_r3 = pft_fev1_r3a / pft_fvc_r3a,
     
-    ### Means of three readings
-    pft_fev1 = select(., starts_with("pft_fev1_r")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FEV1"),
-    pft_fvc = select(., starts_with("pft_fvc_r")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FVC"),
-    pft_fev1_fvc = select(., starts_with("pft_fev1_fvc")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FEV1/FVC"),
-    pft_tlco = select(., pft_tlco_reading1, pft_tlco_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("TLCO"),
-    pft_kco = select(., pft_kco_reading1, pft_kco_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("KCO"),
-    pft_mip = select(., pft_mip_reading, pft_mip_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("MIP"), 
-    pft_mep = select(., pft_mep_reading1, pft_mep_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("MEP"),
+    pft_fev1_perc_pred_80 = case_when(
+      pft_fev1_perc_pred < 80 ~ "Yes",
+      pft_fev1_perc_pred >= 80 ~ "No",
+    ) %>% 
+      ff_label("FEV1 % pred <80%"),
+    
+    
+    pft_fvc_perc_pred_80 = case_when(
+      pft_fvc_perc_pred < 80 ~ "Yes",
+      pft_fvc_perc_pred >= 80 ~ "No",
+    ) %>% 
+      ff_label("FVC % pred <80%"),
+    
+    
+    pft_fev1_fvc_70 = case_when(
+      pft_fev1_fvc < 0.7 ~ "Yes",
+      pft_fev1_fvc >= 0.7 ~ "No",
+    ) %>% 
+      ff_label("FEV1/FVC <0.7"),
+    
+    # These aren't working at the moment. Change to cut-off
+    # pft_tlco = case_when(
+    #   redcap_data_access_group %in% c("royal_hallamshire",
+    #                                   "wythenshawe_hospit",
+    #                                   "manchester_royal_i",
+    #                                   "salford_royal_hosp") ~ 0.335 * pft_tlco,
+    #   TRUE ~ pft_tlco
+    # ),
+    # 
+    # pft_kco = case_when(
+    #   redcap_data_access_group %in% c("royal_hallamshire",
+    #                                   "wythenshawe_hospit",
+    #                                   "manchester_royal_i",
+    #                                   "salford_royal_hosp") ~ 0.335 * pft_kco,
+    #   TRUE ~ pft_kco
+    # )
+    
+    
+    pft_tlco = case_when(
+      pft_tlco >  15 ~ 0.335 * pft_tlco,
+      TRUE ~ pft_tlco
+    ),
+    
+    pft_kco = case_when(
+      pft_kco > 2.5 ~ 0.335 * pft_kco,
+      TRUE ~ pft_kco
+    )
   )
+
 
 # IMD ------------------------------------------------------------------------------------
 post_code_main_lookup = read_csv('http://argonaut.is.ed.ac.uk/public/lookup/NSPL_FEB_2020_UK.csv')
@@ -487,7 +824,7 @@ phosp = phosp %>%
                           levels = c("1", "2", "3", "4", "5"),
                           labels = c("1 - most deprived", "2", "3", "4", "5 - least deprived")
     ) %>% 
-      ff_label("Index of muliple deprivation")
+      ff_label("Index of multiple deprivation")
   )
 
 rm(pcode_data, post_code_main_lookup, post_code_supp_lookup)
@@ -496,13 +833,13 @@ rm(pcode_data, post_code_main_lookup, post_code_supp_lookup)
 ## This should be one row per patient, check below
 phosp_hosp = phosp %>% 
   filter(is.na(redcap_repeat_instance)) %>% 
-  filter(redcap_event_name== "Hospital Discharge") %>% 
+  filter(redcap_event_name == "Hospital Discharge") %>% 
   purrr::discard(~all(is.na(.)))
 
 # Join back in admission only variables that cannot be filled --------------------------
 phosp = phosp %>% 
-  select(-c(no_comorbid, no_comorbid_3levels)) %>% 
-  left_join(phosp_hosp %>% select(study_id, no_comorbid, no_comorbid_3levels))
+  select(-c(no_comorbid, no_comorbid_2levels, no_comorbid_3levels)) %>% 
+  left_join(phosp_hosp %>% select(study_id, no_comorbid, no_comorbid_2levels, no_comorbid_3levels))
 
 # 6 week event only ----------------------------------------------------------
 ## This should be one row per patient, check below
@@ -515,8 +852,29 @@ phosp_6w = phosp %>%
 ## This should be one row per patient, check below
 phosp_3m = phosp %>% 
   filter(is.na(redcap_repeat_instance)) %>% 
-  filter(redcap_event_name== "3 Months (1st Research Visit)")%>% 
+  filter(redcap_event_name== "3 Months (1st Research Visit)") %>% 
   purrr::discard(~all(is.na(.)))
+
+# Walk test instrument ---------------------------------------------------
+phosp_wt = phosp %>% 
+  filter(redcap_repeat_instrument == "Walk Test - 6 Min / ISWT 15 Level") %>%
+  purrr::discard(~all(is.na(.))) %>% 
+  left_join(phosp %>% select(study_id, crf3a_bmi) %>% drop_na()) %>% 
+  
+  # Make ISWT predicited and percent predicted
+  mutate(
+    wt_distance = parse_number(wt_distance), 
+    
+    wt_iswt_predicted = 1449.701 - 
+      (11.735 * age_admission) + 
+      (241.897 * (crf1a_sex %>% as.numeric() %>% {. - 2} %>% abs())) - # female = 0
+      (5.686 * crf3a_bmi) %>% 
+      ff_label("ISWT predicted"),
+    
+    wt_iswt_predicted_perc = (100 * wt_distance / wt_iswt_predicted) %>% 
+      ff_label("ISWT % predicted"),
+  ) %>% 
+  ff_relabel_df(phosp)
 
 # Define patients for 1st 1000 -  discharge before 30112020
 study_id_before_end_nov = phosp %>% 
@@ -524,11 +882,50 @@ study_id_before_end_nov = phosp %>%
   pull(study_id)
 
 
+
+# 3 month symptoms -----------------------------------------------------------
+psq_scale = c("psq_scale_blness_24hrs", "psq_scale_fatigue_24hrs", "psq_scale_sleep_24hrs", "psq_scale_cough_24hrs", 
+              "psq_scale_pain_24hrs")
+neuro = c("loss_of_sense_of_smell", "loss_of_taste", "confusion_fuzzy_head", "difficulty_with_communicat", 
+          "difficulty_with_concentrat", "short_term_memory_loss", "physical_slowing_down", "slowing_down_in_your_think", "headache", 
+          "altered_personality_behavi", "limb_weakness", "problems_with_balance", "can_t_move_and_or_feel_one", "problems_seeing", 
+          "tingling_feeling_pins_and", "can_t_fully_move_or_contro", "tremor_shakiness", "seizures")
+musculoskeletal = c("aching_in_your_muscles_pai", "joint_pain_or_swelling")
+cardiorespiratory = c("leg_ankle_swelling", "chest_pain", "chest_tightness", "pain_on_breathing", "palpitations", 
+                      "dizziness_or_lightheadness", "fainting_blackouts")
+gastrointestinal_genitourinary = c("diarrhoea", "constipation", "nausea_vomiting", "abdominal_pain", "loss_of_appetite", 
+                                   "loss_of_control_of_passing", "loss_of_control_of_opening", "weight_loss", "stomach_pain", 
+                                   "psq_symp_ed", "skin_rash", "lumpy_lesions_purple_pink", "bleeding")
+psq = c("psq_balance_q1_since", "psq_balance_q2_since")
+tinnitus = "psq_tinnitus_since"
+
+all_symptoms = c(neuro, musculoskeletal, cardiorespiratory, gastrointestinal_genitourinary, psq_scale, psq, tinnitus)
+
+phosp_3m = phosp_3m %>% 
+  select(study_id, all_symptoms) %>% 
+  mutate(
+    across(psq_scale,  ~ if_else(. >= 3, 1, 0)),
+    across(c(neuro, musculoskeletal, cardiorespiratory, gastrointestinal_genitourinary, psq), ~ if_else(. == "Yes", 1, 0)),
+    across(c(tinnitus), ~ if_else(. %in% c("Yes, most or all of the time", 
+                                           "Yes, a lot of the time", 
+                                           "Yes, some of the time"), 1, 0))
+  ) %>% 
+  mutate(
+    symptom_count = rowSums(select(., -study_id), na.rm = TRUE) %>% 
+      ff_label("Symptom count"),
+    symptom_any = if_else(symptom_count > 0, "Yes", "No") %>% 
+      ff_label("Any symptom at 3 months (%)")) %>% 
+  select(study_id, symptom_count, symptom_any) %>% 
+  left_join(phosp_3m, by = "study_id")
+
+
+
+
 # Temp out for testing -----------------------------------------------
-saveRDS(phosp, "phosp.rds")
-saveRDS(data, "data.rds")
-saveRDS(phosp_hosp, "phosp_hosp.rds")
-saveRDS(phosp_6w, "phosp_6w.rds")
-saveRDS(phosp_3m, "phosp_3m.rds")
-save(study_id_before_end_nov, file = "helpers.rda")
+# saveRDS(phosp, "phosp.rds")
+# saveRDS(data, "data.rds")
+# saveRDS(phosp_hosp, "phosp_hosp.rds")
+# saveRDS(phosp_6w, "phosp_6w.rds")
+# saveRDS(phosp_3m, "phosp_3m.rds")
+# save(study_id_before_end_nov, file = "helpers.rda")
 
