@@ -59,7 +59,9 @@ data = data_raw %>%
   as_tibble()
 
 # Formating
-source("/home/eharrison/phosp_clean/PHOSPCOVID19FU_R_2021-02-10_1805.r")
+## Update 11/05/2021
+#source("/home/eharrison/phosp_clean/PHOSPCOVID19FU_R_2021-02-10_1805.r")
+source("/home/eharrison/phosp_clean/PHOSPCOVID19FU_R_2021-05-11_0708.r")
 
 # Out object and clean
 phosp = data
@@ -67,4 +69,4 @@ phosp = data
 # Remove empty columns
 phosp = purrr::discard(phosp, ~all(is.na(.)))
 
-rm(subjid, batch, rate, insistent_postForm, insistent_redcap_read)
+rm(subjid, data_raw, batch, rate, insistent_postForm, insistent_redcap_read)

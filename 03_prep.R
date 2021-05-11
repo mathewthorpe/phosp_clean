@@ -286,7 +286,7 @@ phosp = phosp %>%
 
 ####################################################################
 
-crosswalk_lookup <- readxl::read_excel('crosswalk_lookup.xls',sheet = "EQ-5D-5L Value Sets")
+crosswalk_lookup <- readxl::read_excel('/home/eharrison/phosp_clean/crosswalk_lookup.xls',sheet = "EQ-5D-5L Value Sets")
 
 ##################################################################
 

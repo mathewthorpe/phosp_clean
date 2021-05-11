@@ -15,7 +15,7 @@ library(lubridate)
 
 #Read Mspline lookup table
 # Mspline <- read.csv('/home/skerr/Git/phosp_analysis/tlco_kco_prediction/Mspline.csv')
-Mspline <- read.csv('Mspline.csv')
+Mspline <- read.csv('/home/eharrison/phosp_clean/Mspline.csv')
 
 #################################################################
 
