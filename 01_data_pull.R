@@ -69,4 +69,4 @@ phosp = data
 # Remove empty columns
 phosp = purrr::discard(phosp, ~all(is.na(.)))
 
-rm(subjid, data_raw, batch, rate, insistent_postForm, insistent_redcap_read)
+rm(subjid, batch, rate, insistent_postForm, insistent_redcap_read)

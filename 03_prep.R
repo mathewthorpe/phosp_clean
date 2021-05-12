@@ -23,20 +23,20 @@ phosp = phosp %>%
     # Tier 
     tier = if_else(study_id %in% tier2_study_id, 2, 1),
     
-    # Explanatory variables ----
+    # Explanatory variables ------------------
     ## Age
     age_admission_factor = case_when(
-      age_admission < 20 ~ "<20",
-      age_admission < 30 ~ "20-29",
+      age_admission < 30 ~ "<30",
       age_admission < 40 ~ "30-39",
       age_admission < 50 ~ "40-49",
       age_admission < 60 ~ "50-59",
       age_admission < 70 ~ "60-69",
       age_admission < 80 ~ "70-79",
-      age_admission < 90 ~ "80-89",
       is.na(age_admission) ~ NA_character_,
-      TRUE ~ "90+"
-    ),
+      TRUE ~ "80+"
+    ) %>% 
+      fct_relevel("50-59") %>% 
+      ff_label("Age at admisison (y)"),
     
     ## Ethnicity
     crf1b_eth_5levels = case_when(
@@ -52,7 +52,7 @@ phosp = phosp %>%
         crf1b_eth == "(10) Asian/ Asian British - Pakistani" | 
         crf1b_eth == "(11) Asian/ Asian British - Bangladeshi" |
         crf1b_eth == "(13) Asian/ Asian British - Any other Asian background" ~ "South Asian", 
-      crf1b_eth == "(12) Asian/ Asian British - Chinese" ~ "East Asian",
+      crf1b_eth == "(12) Asian/ Asian British - Chinese" ~ "Other",
       crf1b_eth == "(14) Black/ African/ Caribbean/ Black British - African" |
         crf1b_eth == "(15) Black/ African/ Caribbean/ Black British - Caribbean" |
         crf1b_eth == "(16) Black/ African/ Caribbean/ Black British - Any other Black/ African/ Caribbean background" ~ "Black",
@@ -60,7 +60,7 @@ phosp = phosp %>%
         crf1b_eth == "(18) Other ethnic group - Any other ethnic group" ~ "Other",
       crf1b_eth == "Prefer not to say" ~ NA_character_
     ) %>% 
-      fct_relevel("White", "South Asian", "East Asian", "Black", "Mixed", "Other") %>% 
+      fct_relevel("White", "South Asian", "Black", "Mixed", "Other") %>% 
       ff_label("Ethnicity"),
     
     crf1b_eth_pft = case_when(
@@ -99,6 +99,14 @@ phosp = phosp %>%
     
     ## Symptom scales - convert to numeric
     across(starts_with("psq_scale_"), ~ as.character(.) %>% parse_number()),
+    
+    ## Erectile dysfunction in men only
+    psq_symp_ed = as.character(psq_symp_ed),
+    psq_symp_ed = case_when(
+      crf1a_sex == "Female" ~ NA_character_,
+      psq_symp_ed == "N/A" ~ NA_character_,
+      TRUE ~ psq_symp_ed 
+    ),
     
   ) %>% 
   
@@ -158,7 +166,7 @@ phosp = phosp %>%
       fct_relevel("No comorbidity") %>% 
       ff_label("Number of comorbidities (factor)"), 
     
-    # Dates ----
+    # Dates ------------------
     ## Symptom duration
     crf1a_symptom_duration = (crf1a_date_adm - crf1a_date_first_symptoms) %>% 
       as.numeric("days") %>% 
@@ -170,7 +178,7 @@ phosp = phosp %>%
       ff_label("Admission duration (days)"),
     
     
-    # Comorbidities ----
+    # Comorbidities ------------------
     ## Make summary variables
     crf1a_com_card = rowSums(select(., dplyr::starts_with("crf1a_com_card"), -contains("other")) %>% 
                                mutate(across(everything(), ~ . == "Yes")),
@@ -189,7 +197,8 @@ phosp = phosp %>%
                              na.rm = TRUE),
     crf1a_com_mer = rowSums(select(., dplyr::starts_with("crf1a_com_mer"), -c(contains("other"),
                                                                               crf1a_com_mer_diab,
-                                                                              crf1a_com_mer_diab_com)) %>% 
+                                                                              crf1a_com_mer_diab_com,
+                                                                              crf1a_com_mer_diab_yn)) %>% 
                               mutate(across(everything(), ~ . == "Yes")),
                             na.rm = TRUE),
     crf1a_com_mh = rowSums(select(., dplyr::starts_with("crf1a_com_mh"), -c(contains("other"), 
@@ -202,8 +211,17 @@ phosp = phosp %>%
                            na.rm = TRUE),
     
     # Special case diabetes separated out - need to compare this with crf1a_com_mer_diab_yn for missingness
-    crf1a_com_diab = fct_explicit_na(crf1a_com_mer_diab, na_level = "No") %>% 
+    # Diabetes update 15/03/2021 - include type 1 in endocrine and only pull type 2 for the separate variable
+    crf1a_com_diab = fct_explicit_na(crf1a_com_mer_diab, na_level = "No") %>%
+      fct_recode("No" = "Type 1") %>% 
+      fct_drop() %>% 
       fct_relevel("No"),
+    
+    ## Add type 1 to mer
+    crf1a_com_mer = case_when(
+      crf1a_com_mer_diab == "Type 1" ~ crf1a_com_mer + 1,
+      TRUE ~ crf1a_com_mer
+    ),
     
     across(c(crf1a_com_card, crf1a_com_res,
              crf1a_com_gast, crf1a_com_neupsy,
@@ -224,14 +242,39 @@ phosp = phosp %>%
     crf1a_com_mh = ff_label(crf1a_com_mh, "Malignancy"), 
     crf1a_com_id = ff_label(crf1a_com_id, "Infectious disease"), 
     
-    # Anthro values ----
+    # Anthro values ------------------
     ## Height (character)
     crf3a_rest_height = parse_number(crf3a_rest_height),
     crf3a_rest_weight = parse_number(crf3a_rest_weight),
     crf3a_bmi = (crf3a_rest_weight / (crf3a_rest_height / 100)^2) %>% 
       ff_label("BMI"),
     
-    # PROMs ----
+    crf3a_bmi_5levels = case_when(
+      crf3a_bmi < 18.5 ~ "Underweight (<18.5)",
+      crf3a_bmi < 25 ~ "Normal weight (18.5 to 24.9)",
+      crf3a_bmi < 30 ~ "Overweight (25 to 29.9)",
+      crf3a_bmi < 40 ~ "Obese (30 to 39.9)",
+      is.na(crf3a_bmi) ~ NA_character_,
+      TRUE ~ "Severe obesity (40+)"
+    ) %>% 
+      factor() %>% 
+      fct_relevel("Underweight (<18.5)", "Normal weight (18.5 to 24.9)",
+                  "Overweight (25 to 29.9)", "Obese (30 to 39.9)",
+                  "Severe obesity (40+)") %>% 
+      ff_label("BMI (5 levels)"), 
+    
+    crf3a_bmi_2levels = case_when(
+      crf3a_bmi < 30 ~ "BMI < 30 kg/m^2",
+      is.na(crf3a_bmi) ~ NA_character_,
+      TRUE ~ "BMI 30+ kg/m^2"
+    ) %>% 
+      factor() %>% 
+      fct_relevel("BMI < 30 kg/m^2", "BMI 30+ kg/m^2") %>% 
+      ff_label("BMI (2 levels)"),
+    
+    
+    
+    # PROMs ------------------
     ## EQ5D
     eq5d5l_summary_pre = parse_number(eq5d5l_summary_pre),
     eq5d5l_summary = parse_number(eq5d5l_summary),
@@ -242,8 +285,8 @@ phosp = phosp %>%
       eq5d5l_summary_delta == 0 ~ "No change",
       eq5d5l_summary_delta > 0 ~ "Improvement",
       eq5d5l_summary_delta < 0 ~ "Worse"
-    )   %>% 
-      factor() %>% 
+    )   %>%
+      factor() %>%
       fct_relevel("No change"),
     
     
@@ -258,6 +301,8 @@ phosp = phosp %>%
                            na.rm = TRUE) %>% 
       ff_label("EQ5D sum of domains"),
     
+    eq5d5l_total_delta = (eq5d5l_total - eq5d5l_total_pre) %>% 
+      ff_label("EQ5D change in sum of domains"), 
     
     across(starts_with("eq5d5l_q"), ~ as.numeric(.) - 1, .names = "{.col}_numeric"),
     eq5d5l_q1_delta = eq5d5l_q1_numeric - eq5d5l_q1_pre_numeric,
@@ -286,7 +331,7 @@ phosp = phosp %>%
 
 ####################################################################
 
-crosswalk_lookup <- readxl::read_excel('/home/eharrison/phosp_clean/crosswalk_lookup.xls',sheet = "EQ-5D-5L Value Sets")
+crosswalk_lookup <- readxl::read_excel('/home/eharrison/phosp_first_report/crosswalk_lookup.xls',sheet = "EQ-5D-5L Value Sets")
 
 ##################################################################
 
@@ -442,7 +487,6 @@ phosp = phosp %>%
       ff_label("Dyspnoea-12 score"),
     
     ## BPI
-    
     bpi_severity_summary = rowSums(select(., bpi_worst:bpi_rightnow) %>% 
                                      mutate(across(everything(), ~ as.numeric(.) %>% {. - 1})),
                                    na.rm = FALSE) %>% 
@@ -454,24 +498,29 @@ phosp = phosp %>%
       ff_label("BPI interference"),
     
     
+    ## FACIT (needs reversed)
+    facit_item_total = 52 - facit_item_total,
+    
+    
     ## SPBB
     sppb_score_summary = case_when(
       sppb_score <= 10 ~ "Yes",
       sppb_score > 10 ~ "No",
     ) %>% 
-      ff_label("SPPB (mobility disability"), 
+      ff_label("SPPB (mobility disability <=10"), 
     
     
     ## Rockwood clinical frailty score (RCF)
-    rcf_score_numeric = rcf_score %>% as.numeric(),
+    rcf_score_numeric = rcf_score %>% as.numeric() %>% ff_label("RCF score (numeric)"),
     rcf_score_summary = case_when(
       rcf_score_numeric >= 5 ~ "Yes",
       rcf_score_numeric < 5 ~ "No",
     ) %>% 
       ff_label("Rockwood clinical frailty score >=5"), 
     
-    
     ## MOCA
+    mocal_total = if_else(mocal_total == 0, NA_real_, mocal_total),
+    
     mocal_total_summary = case_when(
       mocal_total == 0 ~ NA_character_,
       mocal_total < 23 ~ "Yes",
@@ -479,19 +528,18 @@ phosp = phosp %>%
     ) %>% 
       ff_label("MOCA <23"), 
     
+    ## MOCA corrected is done below, because it needs a fill on education level. 
     
     
-    
-    
-    
-    # Treatment -----
-    across(c("crf1a_treat_ss", "crf1a_treat_at", "crf1a_treat_tdac"), ~ fct_recode(., 
-                                                                                   NULL = "N/K") %>% 
+    # Treatment -------------------
+    across(c("crf1a_treat_ss", "crf1a_treat_at", "crf1a_treat_tdac"), 
+           ~ fct_recode(., 
+                        NULL = "N/K") %>% 
              fct_relevel("No")
     ),
     
     
-    # Outcomes ----
+    # Outcomes ------------------
     ## Respiratory support
     crf1a_resp_support_8levels = case_when(
       crf1a_o2_ecmo == "Yes" ~ "ECMO", 
@@ -516,13 +564,13 @@ phosp = phosp %>%
     
     
     crf1a_resp_support_4levels = case_when(
-      crf1a_o2_ecmo == "Yes" ~ "IMV/RRT/ECMO", 
-      crf1a_treat_rrt == "Yes" ~ "IMV/RRT/ECMO",
-      crf1a_o2_imv == "Yes" ~ "IMV/RRT/ECMO", 
-      crf1a_o2_hfn == "Yes" ~ "CPAP/BIPAP/HFN", 
-      crf1a_o2_blniv == "Yes" ~ "CPAP/BIPAP/HFN", 
-      crf1a_o2_cpapv == "Yes" ~ "CPAP/BIPAP/HFN", 
-      crf1a_o2_supp == "Yes" ~ "O2",
+      crf1a_o2_ecmo == "Yes" ~ "WHO – class 7-9", 
+      crf1a_treat_rrt == "Yes" ~ "WHO – class 7-9",
+      crf1a_o2_imv == "Yes" ~ "WHO – class 7-9", 
+      crf1a_o2_hfn == "Yes" ~ "WHO – class 6", 
+      crf1a_o2_blniv == "Yes" ~ "WHO – class 6", 
+      crf1a_o2_cpapv == "Yes" ~ "WHO – class 6", 
+      crf1a_o2_supp == "Yes" ~ "WHO – class 5",
       is.na(crf1a_o2_ecmo) & 
         is.na(crf1a_treat_rrt) & 
         is.na(crf1a_o2_imv) & 
@@ -530,14 +578,23 @@ phosp = phosp %>%
         is.na(crf1a_o2_blniv) & 
         is.na(crf1a_o2_cpapv) & 
         is.na(crf1a_o2_supp) ~ NA_character_,
-      TRUE ~ "No respiratory support"
+      TRUE ~ "WHO – class 3-4"
     ) %>% 
       factor() %>% 
-      fct_relevel("No respiratory support", "O2", "CPAP/BIPAP/HFN", "IMV/RRT/ECMO") %>% 
-      ff_label("Maximal organ support")
+      fct_relevel("WHO – class 3-4", "WHO – class 5",	"WHO – class 6",	"WHO – class 7-9") %>% 
+      # Old levels: "No respiratory support", "O2", "CPAP/BIPAP/HFN", "IMV/RRT/ECMO") %>% 
+      ff_label("WHO clinical progression scale")
     
   ) %>% 
-  ff_relabel_df(phosp)
+  ff_relabel_df(phosp) %>% 
+  
+  # Tmp change labels - take these back to REDCap label file
+  mutate(
+    gad7_summary = ff_label(gad7_summary, "GAD7 total score"),
+    phq9_summary = ff_label( phq9_summary, "PHQ9 total score"),
+    rcf_score = ff_label(rcf_score, "RCF score (factor)"),
+    mocal_total = ff_label(mocal_total, "MOCA total score"),
+  )
 
 # Within phosp, fill within patients across rows  ---------------------------------------
 ## This can be changed to joins in the future if causes any issues
@@ -547,8 +604,26 @@ phosp = phosp %>%
 phosp = phosp %>%  
   group_by(study_id) %>% 
   fill(age_admission, age_admission_factor, crf1a_sex,  crf1b_eth_pft, crf3a_rest_height,
-       .direction = "downup") %>% 
+       crf1a_date_dis, crf1b_edu, .direction = "downup") %>% 
   ungroup() %>% 
+  ff_relabel_df(phosp)
+
+
+# MOCA adjusted for level of educational attainment, which needs the above fill. 
+phosp = phosp %>% 
+  mutate(
+    mocal_total_corrected = case_when(
+      crf1b_edu %in% c("None", "Primary school",
+                       "Secondary school (GCSE level, NVQ level 1/2 or equivalent, typically age 16)") ~ mocal_total + 1,
+      TRUE ~ mocal_total
+    ),
+    
+    mocal_total_corrected_summary = case_when(
+      mocal_total_corrected < 23 ~ "Yes",
+      mocal_total_corrected >= 23 ~ "No",
+    ) %>% 
+      ff_label("MOCA (corrected) <23")
+  ) %>% 
   ff_relabel_df(phosp)
 
 
@@ -577,7 +652,26 @@ phosp = phosp %>%
       crf3a_bmi  < 15 ~ NA_real_,
       crf3a_bmi  > 80 ~ NA_real_,
       TRUE ~ crf3a_bmi 
+    ),
+    
+    crf3a_visit_date = case_when(
+      study_id == "62-46" & crf3a_visit_date == ymd("2021-11-20") ~ ymd("2020-11-20"),
+      study_id == "23-35" & crf3a_visit_date == ymd("2021-10-15") ~ ymd("2020-10-15"),
+      study_id == "3-189" & crf3a_visit_date == ymd("2021-07-14") ~ ymd("2020-07-14"),
+      study_id ==  "33-9" & crf3a_visit_date == ymd("2021-05-26") ~ ymd("2020-05-26"),
+      
+      study_id ==  "54-13" & crf3a_visit_date == ymd("2020-01-04") ~ ymd("2021-01-04"),
+      study_id ==  "61-35" & crf3a_visit_date == ymd("2020-01-12") ~ ymd("2021-01-12"),
+      study_id ==  "62-72" & crf3a_visit_date == ymd("2020-01-22") ~ ymd("2021-01-22"),
+      study_id ==  "10-119" & crf3a_visit_date == ymd("2020-01-20") ~ ymd("2021-01-20"),
+      study_id ==  "3-220" & crf3a_visit_date == ymd("2020-01-26") ~ ymd("2021-01-26"),
+      study_id ==  "62-30" & crf3a_visit_date == ymd("2020-01-12") ~ ymd("2021-01-12"),
+      study_id ==  "12-18" & crf3a_visit_date == ymd("2020-01-01") ~ ymd("2021-01-01"),
+      
+      
+      TRUE ~ crf3a_visit_date
     )
+    
     
   ) %>% 
   ff_relabel_df(phosp)
@@ -604,12 +698,12 @@ phosp = phosp %>%
     ),
     
     hba1c_summary = case_when(
-      hba1c_result >= 6.5 ~ "Yes",
+      hba1c_result >= 6.0 ~ "Yes",
       # hba1c_less_greater == "> (Greater than)" ~ "Yes", ## Nothing in this variable?
-      hba1c_result < 6.5 ~ "No"
+      hba1c_result < 6.0 ~ "No"
     ) %>% 
       factor() %>% 
-      ff_label("HbA1C above threshold"),
+      ff_label("HbA1C above threshold (>=6.0%)"),
     
     egfr_summary = case_when(
       egfr_result < 60 ~ "Yes",
@@ -625,19 +719,13 @@ phosp = phosp %>%
       ddi_result < 500 ~ "No",
       ddi_result >= 500 ~ "Yes"
     ) %>% 
-      ff_label("D-dimer (>= 500 ng/ml"),
+      ff_label("D-dimer (>= 500 ng/ml)"),
     
     crp_summary = case_when(
-      crp_result > 10 ~ "No",
-      crp_result <= 10 ~ "Yes"
+      crp_result > 10 ~ "Yes",
+      crp_result <= 10 ~ "No"
     ) %>% 
       ff_label("CRP (>10 mg/L)")
-    
-    # Still to do
-    # D-Dimers by value: (ddi_result)
-    # Any value < 10 will be in mcg/mL FEU whereas any value over 10 will be ng/mL DDU.
-    # 1 mcg/mL FEU = 500 ng/mL DDU
-    
   )%>% 
   ff_relabel_df(phosp)
 
@@ -654,38 +742,65 @@ phosp = phosp %>%
     ) %>% 
       ff_label("Occupation/working status since COVID-19"),
     
-    
-    
     # working_status change
     working_status_change = case_when( 
-      social_status_before != patient_sq_q_today | as.numeric(patient_sq_q) == 2  ~ "Yes",
-      as.numeric(patient_sq_q) == 1 ~ "No"),
+      patient_sq_q == "Different from before" ~ "Yes",
+      patient_sq_q == "Same as before" ~ "No"
+    ), 
     
     # working_less
     working_less = case_when( 
-      working_status_change == "Yes" & as.numeric(social_status_before) == 1 & 
-        as.numeric(patient_sq_q_today) == 2  ~ "Yes",
+      working_status_change == "Yes" & 
+        social_status_before == "Working full-time" & 
+        patient_sq_q_today == "Working part-time" & 
+        !is.na(patient_sq_q_change) ~ "Yes",
+      working_status_change == "Yes" ~ "No",
       working_status_change == "No" ~ "No"),
+    
+    
+    working_before = case_when(
+      social_status_before %in% c("Working full-time",
+                                  "Working part-time") ~ "Yes",
+      is.na(social_status_before) ~ NA_character_,
+      TRUE ~ "No"
+    ),
     
     # no_longer_working
-    no_longer_working = case_when( 
-      working_status_change == "Yes" & !is.na(social_status_before) & !as.numeric(patient_sq_q_today) %in% c(1,2)  ~ "Yes",
-      working_status_change == "No" ~ "No"),
+    no_longer_working = case_when(
+      working_status_change == "Yes" & 
+        patient_sq_q_today %in% c(
+          "Full time carer (children or other)", 
+          "Unemployed",                          
+          "Unable to work due to chronic illness",
+          "Student",
+          "Retired",
+          "Medically retired",
+          "Prefer not to say") ~ "Yes",
+      is.na(working_status_change) ~ NA_character_,
+      TRUE ~ "No"),
     
-    # health_reasonsphosp
+    # health_reasons
     health_reasons = case_when( 
-      as.numeric(patient_sq_q_change) %in% c(1, 5) ~ "Yes",
-      working_status_change == "No" ~ "No"),
+      is.na(patient_sq_q_change) ~ NA_character_,
+      patient_sq_q_change %in% c("Poor health", "Sick leave") ~ "Yes",
+      TRUE ~ "No"
+    ),
     
     # employer_reasons
     employer_reasons = case_when( 
-      as.numeric(patient_sq_q_change) %in% c(3, 4) ~ "Yes",
-      working_status_change == "No" ~ "No"),
+      is.na(patient_sq_q_change) ~ NA_character_,
+      patient_sq_q_change %in% c("Made redundant", "Working hours reduced by employer") ~ "Yes",
+      TRUE ~ "No"
+    ),
     
     # other reasons
     other_reasons = case_when( 
-      as.numeric(patient_sq_q_change) == 2 %in% c(2, 6, 7)  ~ "Yes",
-      working_status_change == "No" ~ "No")
+      is.na(patient_sq_q_change) ~ NA_character_,
+      patient_sq_q_change %in% c("New caring responsibility",
+                                 "Other",
+                                 "Prefer not to say")  ~ "Yes",
+      TRUE ~ "No"
+    )
   ) %>% 
   ff_relabel_df(phosp)
 
@@ -695,9 +810,12 @@ phosp = phosp %>%
 phosp = phosp %>% 
   mutate(    
     ### These should be numeric
-    across(c(pft_tlco_reading1, pft_tlco_reading2, pft_kco_reading1, pft_kco_reading2, 
-             pft_mip_reading, pft_mip_reading2, pft_mep_reading1, pft_mep_reading2), parse_number)
-  ) %>% 
+    across(c(pft_fev1_r1a, pft_fev1_r2a, pft_fev1_r3a,
+             pft_fvc_r1a, pft_fvc_r2a, pft_fvc_r3a,
+             pft_fev1_fvc_r1, pft_fev1_fvc_r2, pft_fev1_fvc_r3, 
+             pft_tlco_reading1, pft_tlco_reading2, pft_kco_reading1, pft_kco_reading2, 
+             pft_mip_reading, pft_mip_reading2, pft_mep_reading1, pft_mep_reading2), as.numeric)
+  ) %>%
   
   mutate(
     
@@ -709,7 +827,7 @@ phosp = phosp %>%
     ### Means of three readings
     pft_fev1 = select(., starts_with("pft_fev1_r")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FEV1"),
     pft_fvc = select(., starts_with("pft_fvc_r")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FVC"),
-    pft_fev1_fvc = select(., starts_with("pft_fev1_fvc")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FEV1/FVC"),
+    pft_fev1_fvc = (pft_fev1 / pft_fvc) %>% ff_label("FEV1/FVC"),
     pft_tlco = select(., pft_tlco_reading1, pft_tlco_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("TLCO"),
     pft_kco = select(., pft_kco_reading1, pft_kco_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("KCO"),
     pft_mip = select(., pft_mip_reading, pft_mip_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("MIP"), 
@@ -829,6 +947,29 @@ phosp = phosp %>%
 
 rm(pcode_data, post_code_main_lookup, post_code_supp_lookup)
 
+# SARS-CoV-2 status ---------------------------------------------------------------------
+phosp_pcr = phosp %>% 
+  filter(redcap_event_name == "Hospital Discharge") %>% 
+  filter(redcap_repeat_instrument == "SARS-CoV-2 Swab PCR Test Result") %>% 
+  select(study_id, swab_pcr_result) %>% 
+  group_by(study_id) %>% 
+  summarise(
+    swab_pcr_result = ifelse(any(swab_pcr_result == "Positive", na.rm = TRUE), "Positive", 
+                             ifelse(any(swab_pcr_result == "Indeterminate", na.rm = TRUE), "Indeterminate", 
+                                    ifelse(any(swab_pcr_result == "Negative", na.rm = TRUE), "Negative", 
+                                           NA))) %>% 
+      factor()) %>%
+  mutate( # Don't know why this required taken out of summarise. 
+    swab_pcr_result = 
+      fct_relevel(swab_pcr_result, "Negative", "Positive", "Indeterminate") %>% 
+      ff_label("SARS-CoV-2 swab")
+  )
+
+phosp = phosp %>% 
+  select(-swab_pcr_result) %>% 
+  left_join(phosp_pcr) %>% 
+  ff_relabel_df(phosp_pcr)
+
 # Hospital discharge event only ----------------------------------------------------------
 ## This should be one row per patient, check below
 phosp_hosp = phosp %>% 
@@ -853,6 +994,8 @@ phosp_6w = phosp %>%
 phosp_3m = phosp %>% 
   filter(is.na(redcap_repeat_instance)) %>% 
   filter(redcap_event_name== "3 Months (1st Research Visit)") %>% 
+  mutate(discharge_to_3m_review = (crf3a_visit_date - crf1a_date_dis) %>% as.numeric() %>% 
+           ff_label("Discharge to review time (days)")) %>%  
   purrr::discard(~all(is.na(.)))
 
 # Walk test instrument ---------------------------------------------------
@@ -879,9 +1022,8 @@ phosp_wt = phosp %>%
 # Define patients for 1st 1000 -  discharge before 30112020
 study_id_before_end_nov = phosp %>% 
   filter(crf1a_date_dis <= ymd(20201130)) %>% 
+  distinct(study_id) %>% 
   pull(study_id)
-
-
 
 # 3 month symptoms -----------------------------------------------------------
 psq_scale = c("psq_scale_blness_24hrs", "psq_scale_fatigue_24hrs", "psq_scale_sleep_24hrs", "psq_scale_cough_24hrs", 
@@ -901,24 +1043,32 @@ tinnitus = "psq_tinnitus_since"
 
 all_symptoms = c(neuro, musculoskeletal, cardiorespiratory, gastrointestinal_genitourinary, psq_scale, psq, tinnitus)
 
+# NOTE, the way this works, all missing is defined for the 48 variables listed above. 
+# If variables added or removed, then the code below will need modified to catch "all missing". 
+
 phosp_3m = phosp_3m %>% 
   select(study_id, all_symptoms) %>% 
   mutate(
     across(psq_scale,  ~ if_else(. >= 3, 1, 0)),
     across(c(neuro, musculoskeletal, cardiorespiratory, gastrointestinal_genitourinary, psq), ~ if_else(. == "Yes", 1, 0)),
-    across(c(tinnitus), ~ if_else(. %in% c("Yes, most or all of the time", 
-                                           "Yes, a lot of the time", 
-                                           "Yes, some of the time"), 1, 0))
+    psq_tinnitus_since = case_when(
+      psq_tinnitus_since %in% c("Yes, most or all of the time", 
+                                "Yes, a lot of the time", 
+                                "Yes, some of the time") ~ 1,
+      is.na(psq_tinnitus_since) ~ NA_real_,
+      TRUE ~ 0
+    )
   ) %>% 
   mutate(
     symptom_count = rowSums(select(., -study_id), na.rm = TRUE) %>% 
       ff_label("Symptom count"),
+    symptom_missing = rowSums(select(., -study_id) %>% is.na()),
+    symptom_count = if_else(symptom_missing == 48, NA_real_, symptom_count),
     symptom_any = if_else(symptom_count > 0, "Yes", "No") %>% 
       ff_label("Any symptom at 3 months (%)")) %>% 
   select(study_id, symptom_count, symptom_any) %>% 
-  left_join(phosp_3m, by = "study_id")
-
-
+  left_join(phosp_3m, by = "study_id") %>% 
+  ff_relabel_df(phosp_3m)
 
 
 # Temp out for testing -----------------------------------------------
