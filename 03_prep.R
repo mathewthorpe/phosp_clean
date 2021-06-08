@@ -322,32 +322,25 @@ phosp = phosp %>%
   ff_relabel_df(phosp)
 
 
-####################################################################
+# Calculate EQ5DL utility index for phosp data -----------------------------------------------------------------------
+##  Code author: Steven Kerr
 
-# Code authors: Steven Kerr
-
-## Description: 
-### Calculate EQ5DL index for phosp data   ####
-
-####################################################################
-
+## Look up table
 crosswalk_lookup <- readxl::read_excel('/home/eharrison/phosp_first_report/crosswalk_lookup.xls',sheet = "EQ-5D-5L Value Sets")
 
-##################################################################
 
-
+## Concatenate responses functions  
 concat_answers <- function(ans1,ans2,ans3,ans4,ans5){
   answers <- bind_cols(ans1, ans2 , ans3, ans4, ans5)
   answerString <- ifelse(complete.cases(answers), paste(ans1, ans2, ans3, ans4, ans5, sep = ''), NA)
 }
-
 
 concat_answers2 <- function(answers){
   answers <- mutate_all(answers, as.numeric)
   answerString <- ifelse(complete.cases(answers), paste(answers[,1], answers[,2], answers[,3], answers[,4], answers[,5], sep = ''), NA)
 }
 
-
+## Pre-covid
 phosp <- mutate(phosp, answers = 
                   concat_answers(as.numeric(eq5d5l_q1_pre), as.numeric(eq5d5l_q2_pre), 
                                  as.numeric(eq5d5l_q3_pre), as.numeric(eq5d5l_q4_pre), 
@@ -357,6 +350,7 @@ phosp <- mutate(phosp, answers =
   dplyr::rename(eq5d5l_utility_index_pre = UK) %>% 
   mutate(eq5d5l_utility_index_pre = as.numeric(eq5d5l_utility_index_pre))
 
+## Post-covid
 phosp <- mutate(phosp, answers = 
                   concat_answers(as.numeric(eq5d5l_q1), as.numeric(eq5d5l_q2), 
                                  as.numeric(eq5d5l_q3), as.numeric(eq5d5l_q4), 
@@ -370,7 +364,8 @@ phosp <- mutate(phosp, answers =
   )
 
 
-
+# Patient questionnaire cleaning ----------------------------------------------------------------------------
+## Change
 phosp = phosp %>% 
   mutate(
     across(starts_with("patient_sq_l_"), ~ as.numeric(.) - 1, .names = "{.col}_numeric"),
@@ -599,7 +594,7 @@ phosp = phosp %>%
 # Within phosp, fill within patients across rows  ---------------------------------------
 ## This can be changed to joins in the future if causes any issues
 ## Doesn't work at the moment for comorbidity, as that sums across columns for all rows
-## See joint below. 
+## See join below. 
 ## Currently this is for PFT calculations
 phosp = phosp %>%  
   group_by(study_id) %>% 
@@ -609,7 +604,7 @@ phosp = phosp %>%
   ff_relabel_df(phosp)
 
 
-# MOCA adjusted for level of educational attainment, which needs the above fill. 
+# MOCA adjusted for level of educational attainment, which needs the above fill ----------------
 phosp = phosp %>% 
   mutate(
     mocal_total_corrected = case_when(
@@ -671,8 +666,6 @@ phosp = phosp %>%
       
       TRUE ~ crf3a_visit_date
     )
-    
-    
   ) %>% 
   ff_relabel_df(phosp)
 
