@@ -850,24 +850,6 @@ phosp = phosp %>%
     ) %>% 
       ff_label("FEV1/FVC <0.7"),
     
-    # These aren't working at the moment. Change to cut-off
-    # pft_tlco = case_when(
-    #   redcap_data_access_group %in% c("royal_hallamshire",
-    #                                   "wythenshawe_hospit",
-    #                                   "manchester_royal_i",
-    #                                   "salford_royal_hosp") ~ 0.335 * pft_tlco,
-    #   TRUE ~ pft_tlco
-    # ),
-    # 
-    # pft_kco = case_when(
-    #   redcap_data_access_group %in% c("royal_hallamshire",
-    #                                   "wythenshawe_hospit",
-    #                                   "manchester_royal_i",
-    #                                   "salford_royal_hosp") ~ 0.335 * pft_kco,
-    #   TRUE ~ pft_kco
-    # )
-    
-    
     pft_tlco = case_when(
       pft_tlco >  15 ~ 0.335 * pft_tlco,
       TRUE ~ pft_tlco
@@ -988,12 +970,8 @@ phosp_3m = phosp %>%
            ff_label("Discharge to review time (days)")) %>%  
   purrr::discard(~all(is.na(.)))
 
-# Walk test instrument ---------------------------------------------------
-phosp_wt = phosp %>% 
-  filter(redcap_repeat_instrument == "Walk Test - 6 Min / ISWT 15 Level") %>%
-  purrr::discard(~all(is.na(.))) %>% 
-  left_join(phosp %>% select(study_id, crf3a_bmi) %>% drop_na()) %>% 
-  
+# Walk test instrument -------------------------------------------------------
+phosp = phosp %>% 
   # Make ISWT predicited and percent predicted
   mutate(
     wt_distance = parse_number(wt_distance), 
@@ -1009,7 +987,7 @@ phosp_wt = phosp %>%
   ) %>% 
   ff_relabel_df(phosp)
 
-# Define patients for 1st 1000 -  discharge before 30112020
+# Define patients for 1st 1000 -  discharge before 30112020 ------------------------------------------
 study_id_before_end_nov = phosp %>% 
   filter(crf1a_date_dis <= ymd(20201130)) %>% 
   distinct(study_id) %>% 

@@ -1,5 +1,4 @@
 ####################################################################
-
 # Code authors: Luke Daines and Steven Kerr
 ### Predicted median values for TLCO and KCO  ###
 ####################################################################
@@ -8,13 +7,8 @@ library(tidyverse)
 library(lubridate)
 
 ################### IMPORT DATA ###############################
-# datadir = "/home/common/phosp/cleaned/full/"
-# timestamp = "2021-03-02_0400"
-# 
-# phosp_hosp   = read_rds(paste0(datadir, "phsop_hosp_", timestamp, "_full.rds"))
-
 #Read Mspline lookup table
-# Mspline <- read.csv('/home/skerr/Git/phosp_analysis/tlco_kco_prediction/Mspline.csv')
+
 Mspline <- read.csv('/home/eharrison/phosp_clean/Mspline.csv')
 
 #################################################################
