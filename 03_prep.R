@@ -36,7 +36,7 @@ phosp = phosp %>%
       TRUE ~ "80+"
     ) %>% 
       fct_relevel("50-59") %>% 
-      ff_label("Age at admisison (y)"),
+      ff_label("Age at admission (y)"),
     
     ## Ethnicity
     crf1b_eth_5levels = case_when(
