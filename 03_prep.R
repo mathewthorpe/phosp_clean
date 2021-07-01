@@ -317,7 +317,20 @@ phosp = phosp %>%
       . > 0 ~ "Worse"
     )   %>% 
       factor() %>% 
-      fct_relevel("No change"), .names = "{.col}_change")
+      fct_relevel("No change"), .names = "{.col}_change"),
+    
+    # EQ5D population norms, added 01/07/2021 EMH
+    
+    eq5d_population_norm = case_when(
+      age_admission < 25 ~ 0.940,
+      age_admission < 35 ~ 0.927,
+      age_admission < 45 ~ 0.911,
+      age_admission < 55 ~ 0.847,
+      age_admission < 65 ~ 0.799,
+      age_admission < 75 ~ 0.779,
+      is.na(age_admission) ~ NA_real_,
+      TRUE ~ 0.726 # 75+
+    )
   ) %>% 
   ff_relabel_df(phosp)
 
@@ -981,10 +994,11 @@ phosp_6w = phosp %>%
 
 # 3 month event only ----------------------------------------------------------
 ## This should be one row per patient, check below
+## NOTE this date should likely be changed to crf3b_date_visit
 phosp_3m = phosp %>% 
   filter(is.na(redcap_repeat_instance)) %>% 
   filter(redcap_event_name== "3 Months (1st Research Visit)") %>% 
-  mutate(discharge_to_3m_review = (crf3a_visit_date - crf1a_date_dis) %>% as.numeric() %>% 
+  mutate(discharge_to_3m_review = (crf3b_date_visit - crf1a_date_dis) %>% as.numeric() %>% 
            ff_label("Discharge to review time (days)")) %>%  
   purrr::discard(~all(is.na(.)))
 
