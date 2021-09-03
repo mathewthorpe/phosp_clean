@@ -16,6 +16,37 @@ tier2_study_id = phosp %>%
   distinct(study_id) %>% 
   pull(study_id)
 
+# Fill 12 months from 3 months------------------------------------------------------------
+## Added 04/08/2021
+## This may have other applications, but in particular baseline eq5d is missing from most
+## 12 month forms
+## This fill will preferentially use 3 months over 12 months over 6 weeks
+
+# #Variables to fill
+vars_to_fill =  phosp %>% 
+  select(matches("eq5d5l.*_pre")) %>% # add more here 
+  names()
+
+## Fill
+phosp_fill = phosp %>% 
+  select(study_id, redcap_event_name, redcap_repeat_instance, all_of(vars_to_fill)) %>% 
+  filter(redcap_event_name %in% c("6 Weeks", "3 Months (1st Research Visit)",
+                                  "12 Months (2nd Research Visit)")) %>% 
+  filter(is.na(redcap_repeat_instance)) %>% 
+  mutate(redcap_event_name = fct_relevel(redcap_event_name, 
+                                         "3 Months (1st Research Visit)",
+                                         "12 Months (2nd Research Visit)")) %>% 
+  arrange(study_id, redcap_event_name) %>% 
+  group_by(study_id) %>% 
+  fill(all_of(vars_to_fill), .direction = "downup")
+
+## Join
+phosp = phosp %>% 
+  select(-all_of(vars_to_fill)) %>% 
+  left_join(phosp_fill)
+
+rm(phosp_fill, vars_to_fill)
+
 # Variable definitions-------------------------------------------------------------------
 phosp = phosp %>% 
   mutate(
@@ -279,7 +310,7 @@ phosp = phosp %>%
     eq5d5l_summary_pre = parse_number(eq5d5l_summary_pre),
     eq5d5l_summary = parse_number(eq5d5l_summary),
     eq5d5l_summary_delta = (eq5d5l_summary - eq5d5l_summary_pre) %>% 
-      ff_label("How good or bad is your health overall? 3 months vs pre-covid"),
+      ff_label("How good or bad is your health overall? Now vs pre-covid"),
     
     eq5d5l_summary_delta_change = case_when(
       eq5d5l_summary_delta == 0 ~ "No change",
@@ -444,6 +475,7 @@ phosp = phosp %>%
         is.na( patient_sq_l_t_communicate_delta) ~ NA_character_,
       TRUE ~ "No"
     ) %>% 
+      factor() %>% 
       ff_label("WG-SS: new disability"),
     
     ## PSQ
@@ -731,8 +763,15 @@ phosp = phosp %>%
       crp_result > 10 ~ "Yes",
       crp_result <= 10 ~ "No"
     ) %>% 
-      ff_label("CRP (>10 mg/L)")
-  )%>% 
+      ff_label("CRP (>10 mg/L)"),
+    
+    crp_summary5 = case_when(
+      crp_result > 5 ~ "Yes",
+      crp_result <= 5 ~ "No"
+    ) %>% 
+      ff_label("CRP (>5 mg/L)")
+    
+  ) %>% 
   ff_relabel_df(phosp)
 
 
