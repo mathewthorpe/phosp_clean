@@ -33,19 +33,28 @@ tc = tc %>%
   reduce(full_join, by = c("phosp_id", "date_tc")) %>% 
   arrange(phosp_id, date_tc)
 
+# Extract study_id from phosp
+phosp_study_id = phosp %>% select(study_id, phosp_id) %>% 
+  distinct(phosp_id, .keep_all = TRUE) %>% 
+  drop_na() # Check with distinct that one-to-one relationship
+  
 # Add require variables for matching ----------------
 tc = tc %>% 
+  inner_join(phosp_study_id) %>% # Only keep TrueColours data if patient is on REDCap
   mutate(redcap_repeat_instrument = "True Colours") %>% 
-  group_by(phosp_id) %>% 
+  group_by(study_id) %>% 
   mutate(redcap_repeat_instance = row_number()) %>% 
-  relocate(phosp_id, redcap_repeat_instrument, redcap_repeat_instance)
+  relocate(study_id, redcap_repeat_instrument, redcap_repeat_instance)
 
 # Join phosp ----------------------------------------
-phosp = phosp %>% 
-  full_join(tc)
+# phosp = phosp %>% 
+#   full_join(tc)
+
+# For now export as separate object
+phosp_tc = tc
 
 # Clean up -----------------------------------------
-rm(tc, path, import_files)
+rm(tc, path, import_files, phosp_study_id)
 
 # Not run ----
 # tc %>% 
