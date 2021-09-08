@@ -864,17 +864,33 @@ phosp = phosp %>%
     ### FEV1:FVC ratio reported as percentage normal by some, recalculate from raw values
     pft_fev1_fvc_r1 = pft_fev1_r1a / pft_fvc_r1a,
     pft_fev1_fvc_r2 = pft_fev1_r2a / pft_fvc_r2a,
-    pft_fev1_fvc_r3 = pft_fev1_r3a / pft_fvc_r3a,
+    pft_fev1_fvc_r3 = pft_fev1_r3a / pft_fvc_r3a#,
     
     ### Means of three readings
-    pft_fev1 = select(., starts_with("pft_fev1_r")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FEV1"),
-    pft_fvc = select(., starts_with("pft_fvc_r")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FVC"),
-    pft_fev1_fvc = (pft_fev1 / pft_fvc) %>% ff_label("FEV1/FVC"),
-    pft_tlco = select(., pft_tlco_reading1, pft_tlco_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("TLCO"),
-    pft_kco = select(., pft_kco_reading1, pft_kco_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("KCO"),
-    pft_mip = select(., pft_mip_reading, pft_mip_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("MIP"), 
-    pft_mep = select(., pft_mep_reading1, pft_mep_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("MEP"),
+    # pft_fev1 = select(., starts_with("pft_fev1_r")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FEV1"),
+    # pft_fvc = select(., starts_with("pft_fvc_r")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FVC"),
+    # pft_fev1_fvc = (pft_fev1 / pft_fvc) %>% ff_label("FEV1/FVC"),
+    # pft_tlco = select(., pft_tlco_reading1, pft_tlco_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("TLCO"),
+    # pft_kco = select(., pft_kco_reading1, pft_kco_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("KCO"),
+    # pft_mip = select(., pft_mip_reading, pft_mip_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("MIP"), 
+    # pft_mep = select(., pft_mep_reading1, pft_mep_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("MEP"),
     
+    ### Change to max of three readings
+    # Note new method here. 
+  ) %>% 
+  
+  mutate(
+    pft_fev1 = pmap_dbl(select(., starts_with("pft_fev1_r")), pmax, na.rm=TRUE) %>% ff_label("FEV1"),
+    pft_fvc = pmap_dbl(select(., starts_with("pft_fvc_r")), pmax, na.rm=TRUE) %>% ff_label("FVC"),
+    pft_tlco = pmap_dbl(select(., c(pft_tlco_reading1, pft_tlco_reading2)), pmax, na.rm=TRUE) %>% ff_label("TLCO"),
+    pft_kco = pmap_dbl(select(., c(pft_kco_reading1, pft_kco_reading2)), pmax, na.rm=TRUE) %>% ff_label("KCO"),
+    pft_mip = pmap_dbl(select(., c(pft_mip_reading, pft_mip_reading2)), pmax, na.rm=TRUE) %>% ff_label("MIP"),
+    pft_mep = pmap_dbl(select(., c(pft_mep_reading1, pft_mep_reading2)), pmax, na.rm=TRUE) %>% ff_label("MEP")
+  ) %>% 
+  ungroup() %>% 
+  
+  mutate(
+    pft_fev1_fvc = (pft_fev1 / pft_fvc) %>% ff_label("FEV1/FVC"),
     pft_fev1_pred = pred_GLI(age_admission, crf3a_rest_height / 100, crf1a_sex, crf1b_eth_pft, param = c("FEV1")),
     pft_fvc_pred = pred_GLI(age_admission, crf3a_rest_height / 100, crf1a_sex, crf1b_eth_pft, param = c("FVC")),
     
@@ -901,25 +917,7 @@ phosp = phosp %>%
       pft_fev1_fvc >= 0.7 ~ "No",
     ) %>% 
       ff_label("FEV1/FVC <0.7"),
-    
-    # These aren't working at the moment. Change to cut-off
-    # pft_tlco = case_when(
-    #   redcap_data_access_group %in% c("royal_hallamshire",
-    #                                   "wythenshawe_hospit",
-    #                                   "manchester_royal_i",
-    #                                   "salford_royal_hosp") ~ 0.335 * pft_tlco,
-    #   TRUE ~ pft_tlco
-    # ),
-    # 
-    # pft_kco = case_when(
-    #   redcap_data_access_group %in% c("royal_hallamshire",
-    #                                   "wythenshawe_hospit",
-    #                                   "manchester_royal_i",
-    #                                   "salford_royal_hosp") ~ 0.335 * pft_kco,
-    #   TRUE ~ pft_kco
-    # )
-    
-    
+
     pft_tlco = case_when(
       pft_tlco >  15 ~ 0.335 * pft_tlco,
       TRUE ~ pft_tlco
