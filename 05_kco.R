@@ -59,3 +59,5 @@ phosp_kco = phosp_hosp %>%
       crf1a_sex == 'Female' ~ exp(-9.873970 + 2.182316*log(crf3a_rest_height) + 0.082868*log(age_admission)
                                   + MsplineLookupV(age_admission, crf1a_sex, 'va', 'SI')))
   )
+
+rm(Mspline, MsplineLookup, MsplineLookupV)

@@ -407,6 +407,7 @@ phosp <- mutate(phosp, answers =
            ff_label("EQ5D utility index (difference)")
   )
 
+rm(crosswalk_lookup, concat_answers, concat_answers2)
 
 # Patient questionnaire cleaning ----------------------------------------------------------------------------
 ## Change
