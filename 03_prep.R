@@ -16,6 +16,37 @@ tier2_study_id = phosp %>%
   distinct(study_id) %>% 
   pull(study_id)
 
+# Fill 12 months from 3 months------------------------------------------------------------
+## Added 04/08/2021
+## This may have other applications, but in particular baseline eq5d is missing from most
+## 12 month forms
+## This fill will preferentially use 3 months over 12 months over 6 weeks
+
+# #Variables to fill
+vars_to_fill =  phosp %>% 
+  select(matches("eq5d5l.*_pre")) %>% # add more here 
+  names()
+
+## Fill
+phosp_fill = phosp %>% 
+  select(study_id, redcap_event_name, redcap_repeat_instance, all_of(vars_to_fill)) %>% 
+  filter(redcap_event_name %in% c("6 Weeks", "3 Months (1st Research Visit)",
+                                  "12 Months (2nd Research Visit)")) %>% 
+  filter(is.na(redcap_repeat_instance)) %>% 
+  mutate(redcap_event_name = fct_relevel(redcap_event_name, 
+                                         "3 Months (1st Research Visit)",
+                                         "12 Months (2nd Research Visit)")) %>% 
+  arrange(study_id, redcap_event_name) %>% 
+  group_by(study_id) %>% 
+  fill(all_of(vars_to_fill), .direction = "downup")
+
+## Join
+phosp = phosp %>% 
+  select(-all_of(vars_to_fill)) %>% 
+  left_join(phosp_fill)
+
+rm(phosp_fill, vars_to_fill)
+
 # Variable definitions-------------------------------------------------------------------
 phosp = phosp %>% 
   mutate(
@@ -36,7 +67,7 @@ phosp = phosp %>%
       TRUE ~ "80+"
     ) %>% 
       fct_relevel("50-59") %>% 
-      ff_label("Age at admisison (y)"),
+      ff_label("Age at admission (y)"),
     
     ## Ethnicity
     crf1b_eth_5levels = case_when(
@@ -279,7 +310,7 @@ phosp = phosp %>%
     eq5d5l_summary_pre = parse_number(eq5d5l_summary_pre),
     eq5d5l_summary = parse_number(eq5d5l_summary),
     eq5d5l_summary_delta = (eq5d5l_summary - eq5d5l_summary_pre) %>% 
-      ff_label("How good or bad is your health overall? 3 months vs pre-covid"),
+      ff_label("How good or bad is your health overall? Now vs pre-covid"),
     
     eq5d5l_summary_delta_change = case_when(
       eq5d5l_summary_delta == 0 ~ "No change",
@@ -292,12 +323,12 @@ phosp = phosp %>%
     
     ## EQ5D sum across domains. as.numeric makes lowest == 1, so subtract 1 for zero as reference
     eq5d5l_total_pre = rowSums(select(., eq5d5l_q1_pre:eq5d5l_q5_pre) %>% 
-                                 mutate(across(everything(), ~ as.numeric(.) %>% {. - 1})),
+                                 mutate(across(everything(), ~ {as.numeric(.) - 1})),
                                na.rm = TRUE) %>% 
       ff_label("EQ5D sum of domains pre-covid"),
     
     eq5d5l_total = rowSums(select(., eq5d5l_q1:eq5d5l_q5) %>% 
-                             mutate(across(everything(), ~ as.numeric(.) %>% {. - 1})),
+                             mutate(across(everything(), ~ {as.numeric(.) - 1})),
                            na.rm = TRUE) %>% 
       ff_label("EQ5D sum of domains"),
     
@@ -317,37 +348,43 @@ phosp = phosp %>%
       . > 0 ~ "Worse"
     )   %>% 
       factor() %>% 
-      fct_relevel("No change"), .names = "{.col}_change")
+      fct_relevel("No change"), .names = "{.col}_change"),
+    
+    # EQ5D population norms, added 01/07/2021 EMH
+    
+    eq5d_population_norm = case_when(
+      age_admission < 25 ~ 0.940,
+      age_admission < 35 ~ 0.927,
+      age_admission < 45 ~ 0.911,
+      age_admission < 55 ~ 0.847,
+      age_admission < 65 ~ 0.799,
+      age_admission < 75 ~ 0.779,
+      is.na(age_admission) ~ NA_real_,
+      TRUE ~ 0.726 # 75+
+    )
   ) %>% 
   ff_relabel_df(phosp)
 
 
-####################################################################
+# Calculate EQ5DL utility index for phosp data -----------------------------------------------------------------------
+##  Code author: Steven Kerr
 
-# Code authors: Steven Kerr
-
-## Description: 
-### Calculate EQ5DL index for phosp data   ####
-
-####################################################################
-
+## Look up table
 crosswalk_lookup <- readxl::read_excel('/home/eharrison/phosp_first_report/crosswalk_lookup.xls',sheet = "EQ-5D-5L Value Sets")
 
-##################################################################
 
-
+## Concatenate responses functions  
 concat_answers <- function(ans1,ans2,ans3,ans4,ans5){
   answers <- bind_cols(ans1, ans2 , ans3, ans4, ans5)
   answerString <- ifelse(complete.cases(answers), paste(ans1, ans2, ans3, ans4, ans5, sep = ''), NA)
 }
-
 
 concat_answers2 <- function(answers){
   answers <- mutate_all(answers, as.numeric)
   answerString <- ifelse(complete.cases(answers), paste(answers[,1], answers[,2], answers[,3], answers[,4], answers[,5], sep = ''), NA)
 }
 
-
+## Pre-covid
 phosp <- mutate(phosp, answers = 
                   concat_answers(as.numeric(eq5d5l_q1_pre), as.numeric(eq5d5l_q2_pre), 
                                  as.numeric(eq5d5l_q3_pre), as.numeric(eq5d5l_q4_pre), 
@@ -357,6 +394,7 @@ phosp <- mutate(phosp, answers =
   dplyr::rename(eq5d5l_utility_index_pre = UK) %>% 
   mutate(eq5d5l_utility_index_pre = as.numeric(eq5d5l_utility_index_pre))
 
+## Post-covid
 phosp <- mutate(phosp, answers = 
                   concat_answers(as.numeric(eq5d5l_q1), as.numeric(eq5d5l_q2), 
                                  as.numeric(eq5d5l_q3), as.numeric(eq5d5l_q4), 
@@ -369,8 +407,10 @@ phosp <- mutate(phosp, answers =
            ff_label("EQ5D utility index (difference)")
   )
 
+rm(crosswalk_lookup, concat_answers, concat_answers2)
 
-
+# Patient questionnaire cleaning ----------------------------------------------------------------------------
+## Change
 phosp = phosp %>% 
   mutate(
     across(starts_with("patient_sq_l_"), ~ as.numeric(.) - 1, .names = "{.col}_numeric"),
@@ -436,6 +476,7 @@ phosp = phosp %>%
         is.na( patient_sq_l_t_communicate_delta) ~ NA_character_,
       TRUE ~ "No"
     ) %>% 
+      factor() %>% 
       ff_label("WG-SS: new disability"),
     
     ## PSQ
@@ -482,18 +523,18 @@ phosp = phosp %>%
     
     ## Dyspoea-12
     dyspnoea12_summary = rowSums(select(., matches("^dysp")) %>% 
-                                   mutate(across(everything(), ~ as.numeric(.) %>% {. - 1})),
+                                   mutate(across(everything(), ~ {as.numeric(.) - 1})),
                                  na.rm = FALSE) %>% 
       ff_label("Dyspnoea-12 score"),
     
     ## BPI
     bpi_severity_summary = rowSums(select(., bpi_worst:bpi_rightnow) %>% 
-                                     mutate(across(everything(), ~ as.numeric(.) %>% {. - 1})),
+                                     mutate(across(everything(), ~ {as.numeric(.) - 1})),
                                    na.rm = FALSE) %>% 
       ff_label("BPI severity"),
     
     bpi_interference_summary = rowSums(select(., bpi_past24_general:bpi_past24_enjoyment) %>% 
-                                         mutate(across(everything(), ~ as.numeric(.) %>% {. - 1})),
+                                         mutate(across(everything(), ~ {as.numeric(.) - 1})),
                                        na.rm = FALSE) %>% 
       ff_label("BPI interference"),
     
@@ -599,7 +640,7 @@ phosp = phosp %>%
 # Within phosp, fill within patients across rows  ---------------------------------------
 ## This can be changed to joins in the future if causes any issues
 ## Doesn't work at the moment for comorbidity, as that sums across columns for all rows
-## See joint below. 
+## See join below. 
 ## Currently this is for PFT calculations
 phosp = phosp %>%  
   group_by(study_id) %>% 
@@ -609,7 +650,7 @@ phosp = phosp %>%
   ff_relabel_df(phosp)
 
 
-# MOCA adjusted for level of educational attainment, which needs the above fill. 
+# MOCA adjusted for level of educational attainment, which needs the above fill ----------------
 phosp = phosp %>% 
   mutate(
     mocal_total_corrected = case_when(
@@ -671,8 +712,6 @@ phosp = phosp %>%
       
       TRUE ~ crf3a_visit_date
     )
-    
-    
   ) %>% 
   ff_relabel_df(phosp)
 
@@ -725,8 +764,15 @@ phosp = phosp %>%
       crp_result > 10 ~ "Yes",
       crp_result <= 10 ~ "No"
     ) %>% 
-      ff_label("CRP (>10 mg/L)")
-  )%>% 
+      ff_label("CRP (>10 mg/L)"),
+    
+    crp_summary5 = case_when(
+      crp_result > 5 ~ "Yes",
+      crp_result <= 5 ~ "No"
+    ) %>% 
+      ff_label("CRP (>5 mg/L)")
+    
+  ) %>% 
   ff_relabel_df(phosp)
 
 
@@ -810,29 +856,42 @@ phosp = phosp %>%
 phosp = phosp %>% 
   mutate(    
     ### These should be numeric
-    across(c(pft_fev1_r1a, pft_fev1_r2a, pft_fev1_r3a,
-             pft_fvc_r1a, pft_fvc_r2a, pft_fvc_r3a,
-             pft_fev1_fvc_r1, pft_fev1_fvc_r2, pft_fev1_fvc_r3, 
-             pft_tlco_reading1, pft_tlco_reading2, pft_kco_reading1, pft_kco_reading2, 
-             pft_mip_reading, pft_mip_reading2, pft_mep_reading1, pft_mep_reading2), as.numeric)
-  ) %>%
+    across(c(pft_tlco_reading1, pft_tlco_reading2, pft_kco_reading1, pft_kco_reading2, 
+             pft_mip_reading, pft_mip_reading2, pft_mep_reading1, pft_mep_reading2), parse_number)
+  ) %>% 
   
   mutate(
     
     ### FEV1:FVC ratio reported as percentage normal by some, recalculate from raw values
     pft_fev1_fvc_r1 = pft_fev1_r1a / pft_fvc_r1a,
     pft_fev1_fvc_r2 = pft_fev1_r2a / pft_fvc_r2a,
-    pft_fev1_fvc_r3 = pft_fev1_r3a / pft_fvc_r3a,
+    pft_fev1_fvc_r3 = pft_fev1_r3a / pft_fvc_r3a#,
     
     ### Means of three readings
-    pft_fev1 = select(., starts_with("pft_fev1_r")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FEV1"),
-    pft_fvc = select(., starts_with("pft_fvc_r")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FVC"),
-    pft_fev1_fvc = (pft_fev1 / pft_fvc) %>% ff_label("FEV1/FVC"),
-    pft_tlco = select(., pft_tlco_reading1, pft_tlco_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("TLCO"),
-    pft_kco = select(., pft_kco_reading1, pft_kco_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("KCO"),
-    pft_mip = select(., pft_mip_reading, pft_mip_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("MIP"), 
-    pft_mep = select(., pft_mep_reading1, pft_mep_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("MEP"),
+    # pft_fev1 = select(., starts_with("pft_fev1_r")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FEV1"),
+    # pft_fvc = select(., starts_with("pft_fvc_r")) %>% rowMeans(na.rm = TRUE) %>% ff_label("FVC"),
+    # pft_fev1_fvc = (pft_fev1 / pft_fvc) %>% ff_label("FEV1/FVC"),
+    # pft_tlco = select(., pft_tlco_reading1, pft_tlco_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("TLCO"),
+    # pft_kco = select(., pft_kco_reading1, pft_kco_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("KCO"),
+    # pft_mip = select(., pft_mip_reading, pft_mip_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("MIP"), 
+    # pft_mep = select(., pft_mep_reading1, pft_mep_reading2) %>% rowMeans(na.rm = TRUE) %>% ff_label("MEP"),
     
+    ### Change to max of three readings
+    # Note new method here. 
+  ) %>% 
+  
+  mutate(
+    pft_fev1 = pmap_dbl(select(., starts_with("pft_fev1_r")), pmax, na.rm=TRUE) %>% ff_label("FEV1"),
+    pft_fvc = pmap_dbl(select(., starts_with("pft_fvc_r")), pmax, na.rm=TRUE) %>% ff_label("FVC"),
+    pft_tlco = pmap_dbl(select(., c(pft_tlco_reading1, pft_tlco_reading2)), pmax, na.rm=TRUE) %>% ff_label("TLCO"),
+    pft_kco = pmap_dbl(select(., c(pft_kco_reading1, pft_kco_reading2)), pmax, na.rm=TRUE) %>% ff_label("KCO"),
+    pft_mip = pmap_dbl(select(., c(pft_mip_reading, pft_mip_reading2)), pmax, na.rm=TRUE) %>% ff_label("MIP"),
+    pft_mep = pmap_dbl(select(., c(pft_mep_reading1, pft_mep_reading2)), pmax, na.rm=TRUE) %>% ff_label("MEP")
+  ) %>% 
+  ungroup() %>% 
+  
+  mutate(
+    pft_fev1_fvc = (pft_fev1 / pft_fvc) %>% ff_label("FEV1/FVC"),
     pft_fev1_pred = pred_GLI(age_admission, crf3a_rest_height / 100, crf1a_sex, crf1b_eth_pft, param = c("FEV1")),
     pft_fvc_pred = pred_GLI(age_admission, crf3a_rest_height / 100, crf1a_sex, crf1b_eth_pft, param = c("FVC")),
     
@@ -859,25 +918,7 @@ phosp = phosp %>%
       pft_fev1_fvc >= 0.7 ~ "No",
     ) %>% 
       ff_label("FEV1/FVC <0.7"),
-    
-    # These aren't working at the moment. Change to cut-off
-    # pft_tlco = case_when(
-    #   redcap_data_access_group %in% c("royal_hallamshire",
-    #                                   "wythenshawe_hospit",
-    #                                   "manchester_royal_i",
-    #                                   "salford_royal_hosp") ~ 0.335 * pft_tlco,
-    #   TRUE ~ pft_tlco
-    # ),
-    # 
-    # pft_kco = case_when(
-    #   redcap_data_access_group %in% c("royal_hallamshire",
-    #                                   "wythenshawe_hospit",
-    #                                   "manchester_royal_i",
-    #                                   "salford_royal_hosp") ~ 0.335 * pft_kco,
-    #   TRUE ~ pft_kco
-    # )
-    
-    
+
     pft_tlco = case_when(
       pft_tlco >  15 ~ 0.335 * pft_tlco,
       TRUE ~ pft_tlco
@@ -991,10 +1032,11 @@ phosp_6w = phosp %>%
 
 # 3 month event only ----------------------------------------------------------
 ## This should be one row per patient, check below
+## NOTE this date should likely be changed to crf3b_date_visit
 phosp_3m = phosp %>% 
   filter(is.na(redcap_repeat_instance)) %>% 
   filter(redcap_event_name== "3 Months (1st Research Visit)") %>% 
-  mutate(discharge_to_3m_review = (crf3a_visit_date - crf1a_date_dis) %>% as.numeric() %>% 
+  mutate(discharge_to_3m_review = (crf3b_date_visit - crf1a_date_dis) %>% as.numeric() %>% 
            ff_label("Discharge to review time (days)")) %>%  
   purrr::discard(~all(is.na(.)))
 

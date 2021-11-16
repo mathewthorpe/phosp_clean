@@ -69,3 +69,26 @@ mytable = function(x, caption = "", row.names = FALSE, longtable = TRUE,
   }
 }
 
+# Stratified version of summary_factorlist -------------------------------------------------------------------
+summary_factorlist_stratified <- function(.data, ..., split, colname_sep = "|", suffix_max_length = 10,
+                                          n_common_cols = 2){
+  
+  df.out = .data %>% 
+    group_by(!!! syms(split)) %>% 
+    group_map(function(.x, .y){
+      summary_factorlist(.x, ...) %>% 
+        rename_with(paste0, colname_sep, 
+                    .y %>% first() %>%
+                      as.character() %>% 
+                      map(stringr::str_trunc, suffix_max_length, ellipsis = "") %>% 
+                      paste(collapse = colname_sep), 
+                    .cols = -c(1:n_common_cols)) %>% 
+        select(-c(1:n_common_cols)) 
+    }
+    ) %>% 
+    bind_cols()
+  
+  summary_factorlist(.data, ...) %>% 
+    select(1:n_common_cols) %>% 
+    bind_cols(df.out)
+}
