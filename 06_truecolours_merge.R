@@ -7,8 +7,21 @@ library(tidyverse)
 library(lubridate)
 
 # Import data -------------------------------------
-path = "/home/eharrison/phosp_clean/data/phosptc.20210903"
+path = "/home/common/phosp/truecolours/tcphosp.20220511/"
 import_files = list.files(path, full.names = TRUE)
+
+phosp = readRDS("/home/common/phosp/cleaned/full/phosp_2022-07-15_0400_full.rds")
+
+#ldf <- lapply(import_files, read.csv)
+
+new_tc = import_files %>% 
+  map(~ read_csv(.) %>% 
+        rename_with(~ paste0(.x, "_tc")) %>% # Add _tc to each variable name
+        rename("phosp_id" = 1,#               # Bring back phosp_id and make new trucolours date common across all
+               "date_tc" = 2) %>% 
+        mutate(date_tc = as_date(date_tc)) %>% # Get rid of time
+        distinct(phosp_id, date_tc, .keep_all = TRUE)
+  )
 
 tc = import_files %>% 
   map(~ read_csv(.) %>% 
@@ -69,3 +82,6 @@ rm(tc, path, import_files, phosp_study_id)
 #   ) %>% 
 #   drop_na()
 # 163
+
+
+new_tc[1]
